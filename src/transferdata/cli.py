@@ -31,7 +31,8 @@ def engines(config):
         source_url = URL.create(
             "mssql+pyodbc", host=source["host"], database=source["database"],
             query={"driver": source.get("driver", "ODBC Driver 18 for SQL Server"),
-                   "Trusted_Connection": "yes", "Encrypt": "yes", "TrustServerCertificate": "no"},
+                   "Trusted_Connection": "yes", "Encrypt": "yes",
+                   "TrustServerCertificate": "yes" if source.get("trust_server_certificate", False) else "no"},
         )
         src = create_engine(source_url, pool_pre_ping=True, hide_parameters=True,
                             connect_args={"timeout": 30})
@@ -68,6 +69,8 @@ def engines(config):
 
 
 def validate(config):
+    if type(config.get("source", {}).get("trust_server_certificate", False)) is not bool:
+        raise ValueError("source.trust_server_certificate must be boolean")
     if config["target"].get("dialect", "oracle") not in {"oracle", "postgresql"}:
         raise ValueError("Target dialect must be oracle or postgresql")
     timezone = ZoneInfo(config.get("timezone", "Europe/Moscow"))
