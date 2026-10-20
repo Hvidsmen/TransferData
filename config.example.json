@@ -1,0 +1,33 @@
+{
+  "timezone": "Europe/Moscow",
+  "lock_directory": ".state",
+  "source": {
+    "host": "vm-dwh",
+    "auth": "windows",
+    "driver": "ODBC Driver 18 for SQL Server",
+    "port": 1433,
+    "database": "DataWH",
+    "username_env": "SQLSERVER_USER",
+    "password_env": "SQLSERVER_PASSWORD"
+  },
+  "target": {
+    "dialect": "postgresql",
+    "host": "83.166.255.19",
+    "port": 5432,
+    "database": "analytics",
+    "username_env": "TARGET_USER",
+    "password_env": "TARGET_PASSWORD"
+  },
+  "jobs": [
+    {
+      "name": "contractors",
+      "source_schema": "erp",
+      "source_table": "Справочники.Контрагенты",
+      "target_schema": "public",
+      "target_table": "contractors",
+      "cron": "0 2 * * *",
+      "batch_size": 1000,
+      "allow_empty": false
+    }
+  ]
+}
