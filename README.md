@@ -1,5 +1,27 @@
 # TransferData
 
+## Django-панель
+
+Веб-панель для подключений, заданий, расписания и истории запусков доступна
+на `http://vm-dwh:8003` после установки. Сервер Waitress слушает `0.0.0.0:8003`.
+ETL выполняет отдельный worker, а действия ставятся в сохраняемую очередь SQLite.
+Ваш рабочий `config.json` с маппингом импортируется без перезаписи исходного файла.
+
+**[Установка панели на Windows](windows/PANEL.md)**.
+
+```powershell
+py -m transferdata.web migrate
+py -m transferdata.web collectstatic --noinput
+py -m transferdata.web createsuperuser
+py -m transferdata.web import_config config.json
+.\windows\Start-Panel.ps1 -Mode web
+# В отдельном PowerShell под той же Windows-учётной записью:
+.\windows\Start-Panel.ps1 -Mode worker
+```
+
+Для проверки панели: `py -m transferdata.web test transferdata.web.panel`.
+На время перехода отключите прежний планировщик ETL перед включением cron в панели.
+
 ETL-сервис для переноса `DataWH.erp.[Справочники.Контрагенты]` из SQL Server
 на Windows-сервере `vm-dwh` в PostgreSQL `analytics`. Полная замена по расписанию,
 пакетное чтение, транзакционный откат при ошибке и журнал количества строк.

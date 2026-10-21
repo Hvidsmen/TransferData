@@ -1,0 +1,14 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>{{ action_label }}</h1>
+<p>Действие будет поставлено в очередь для следующих заданий:</p>
+<ul>{% for job in jobs %}<li>{{ job.name }}: {{ job.source_schema }}.{{ job.source_table }} → {{ job.target_schema }}.{{ job.target_table }}</li>{% endfor %}</ul>
+<p><strong>Полная загрузка заменяет все данные целевой таблицы. Создание таблицы требует права CREATE.</strong></p>
+<form method="post">{% csrf_token %}
+{% for job in jobs %}<input type="hidden" name="{{ checkbox_name }}" value="{{ job.pk }}">{% endfor %}
+<input type="hidden" name="action" value="{{ action_name }}">
+<input type="hidden" name="confirm_etl" value="yes">
+<input type="submit" value="Подтвердить и поставить в очередь">
+<a href="{% url 'admin:panel_job_changelist' %}">Отмена</a>
+</form>
+{% endblock %}

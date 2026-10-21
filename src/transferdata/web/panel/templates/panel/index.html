@@ -1,0 +1,21 @@
+{% extends "admin/index.html" %}
+{% block content %}
+<div class="module" style="padding:18px;box-sizing:border-box">
+  <h2>SQL Server → PostgreSQL</h2>
+  <p>Создайте подключение и задание. Выделите задание в списке и выберите действие:
+  проверка, структура, создание таблицы или загрузка.</p>
+  <p>Задания выполняет отдельный worker. Включённое расписание работает, пока worker запущен.</p>
+  {% if etl_stats %}
+  <p><strong>В очереди: {{ etl_stats.queued }}</strong> · Выполняется: {{ etl_stats.running }} · Ошибок: {{ etl_stats.failed }}</p>
+  <h3>Последние запуски</h3>
+  <table style="width:100%"><thead><tr><th>Задание</th><th>Действие</th><th>Состояние</th><th>Строк</th><th>Начало</th></tr></thead><tbody>
+  {% for run in etl_stats.recent %}<tr>
+    <td><a href="{% url 'admin:panel_run_change' run.pk %}">{{ run.job }}</a></td>
+    <td>{{ run.get_action_display }}</td><td>{{ run.get_status_display }}</td>
+    <td>{{ run.rows|default_if_none:"—" }}</td><td>{{ run.created_at }}</td>
+  </tr>{% empty %}<tr><td colspan="5">Запусков пока нет.</td></tr>{% endfor %}
+  </tbody></table>
+  {% endif %}
+</div>
+{{ block.super }}
+{% endblock %}

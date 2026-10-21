@@ -1,0 +1,12 @@
+<div class="mapping-editor">
+  <p>Исходное имя → имя в PostgreSQL. Можно изменить или удалить строки.</p>
+  <div class="mapping-rows"></div>
+  <button type="button" class="mapping-add">Добавить столбец</button>
+  <button type="button" class="mapping-source">Заполнить из полученной структуры</button>
+  <p class="help">Сначала выполните «Получить структуру источника» в списке заданий.
+  Заполнение добавляет отсутствующие столбцы; длинным именам назначаются короткие имена.</p>
+  <details><summary>JSON / ручное редактирование</summary>
+    {% include "django/forms/widgets/textarea.html" %}
+    <button type="button" class="mapping-reload">Применить JSON к редактору</button>
+  </details>
+</div>

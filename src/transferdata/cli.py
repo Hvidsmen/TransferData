@@ -136,7 +136,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
         config_path = Path(args.config).resolve()
-        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config = json.loads(config_path.read_text(encoding="utf-8-sig"))
         timezone = validate(config)
         if args.command == "validate":
             log.info("Configuration valid; jobs=%d (database connections not checked)", len(config["jobs"]))
