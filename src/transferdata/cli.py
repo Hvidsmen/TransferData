@@ -52,7 +52,7 @@ def engines(config):
                 database=target["database"],
                 username=required_env(target.get("username_env", "TARGET_USER")),
                 password=required_env(target.get("password_env", "TARGET_PASSWORD")),
-                query={"sslmode": "verify-full", "connect_timeout": "30"},
+                query={"sslmode": target.get("sslmode", "verify-full"), "connect_timeout": "30"},
             )
         else:
             target_url = URL.create(
@@ -69,6 +69,8 @@ def engines(config):
 
 
 def validate(config):
+    if config["target"].get("sslmode", "verify-full") not in {"verify-full", "verify-ca", "require"}:
+        raise ValueError("target.sslmode must be verify-full, verify-ca or require")
     if type(config.get("source", {}).get("trust_server_certificate", False)) is not bool:
         raise ValueError("source.trust_server_certificate must be boolean")
     if config["target"].get("dialect", "oracle") not in {"oracle", "postgresql"}:

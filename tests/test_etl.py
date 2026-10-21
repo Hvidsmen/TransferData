@@ -121,7 +121,8 @@ def test_scheduler_runs_real_transfer(tables):
 
 
 @pytest.mark.parametrize("trust", [False, True])
-def test_windows_auth_does_not_request_sql_password(monkeypatch, trust):
+@pytest.mark.parametrize("sslmode", [None, "require"])
+def test_windows_auth_does_not_request_sql_password(monkeypatch, trust, sslmode):
     from unittest.mock import MagicMock
     from transferdata import cli
     created = []
@@ -137,10 +138,13 @@ def test_windows_auth_does_not_request_sql_password(monkeypatch, trust):
 
     monkeypatch.setattr(cli, "create_engine", fake_create)
     monkeypatch.setattr(cli, "required_env", fake_env)
+    target = {"dialect": "postgresql", "host": "postgres.test", "database": "analytics"}
+    if sslmode:
+        target["sslmode"] = sslmode
     cli.engines({
         "source": {"auth": "windows", "host": "vm-dwh", "database": "DataWH",
                    "trust_server_certificate": trust},
-        "target": {"dialect": "postgresql", "host": "postgres.test", "database": "analytics"},
+        "target": target,
     })
     assert created[0].drivername == "mssql+pyodbc"
     assert created[0].username is None
@@ -149,4 +153,9 @@ def test_windows_auth_does_not_request_sql_password(monkeypatch, trust):
     assert created[0].query["TrustServerCertificate"] == ("yes" if trust else "no")
     assert created[0].query["Encrypt"] == "yes"
     assert requested == ["TARGET_USER", "TARGET_PASSWORD"]
-    assert created[1].query["sslmode"] == "verify-full"
+    assert created[1].query["sslmode"] == (sslmode or "verify-full")
+
+
+def test_unencrypted_postgres_mode_is_rejected():
+    with pytest.raises(ValueError, match="target.sslmode"):
+        validate({"target": {"sslmode": "disable"}})
