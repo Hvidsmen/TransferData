@@ -97,7 +97,7 @@ def test_schedule_future_disabled_and_incremental(job):
     from datetime import datetime
     job.schedule_enabled, job.schedule_time = True, time(23, 59)
     job.save()
-    with patch('transferdata.erp.control.management.commands.enqueue_scheduled_jobs.timezone.localtime', return_value=timezone.make_aware(datetime(2026, 1, 1, 12))):
+    with patch('transferdata.erp.control.services.timezone.localtime', return_value=timezone.make_aware(datetime(2026, 1, 1, 12))):
         call_command('enqueue_scheduled_jobs')
     assert job.executions.count() == 0
     job.schedule_time, job.load_mode = time(0), 'INCREMENTAL'

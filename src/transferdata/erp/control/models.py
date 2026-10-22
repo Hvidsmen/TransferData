@@ -43,6 +43,7 @@ class ETLJob(models.Model):
     is_active = models.BooleanField(default=True)
     schedule_enabled = models.BooleanField(default=False)
     schedule_time = models.TimeField(null=True, blank=True)
+    schedule_cron = models.CharField('Расписание', max_length=100, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
@@ -50,7 +51,13 @@ class ETLJob(models.Model):
         identifier(self.target_schema)
         identifier(self.target_table)
         table_name(self.source_table) if self.source_type == 'TABLE' else read_query(self.sql_query)
-        if self.schedule_enabled and not self.schedule_time:
+        if self.schedule_cron:
+            from transferdata.scheduling import simple_schedule
+            try:
+                simple_schedule(self.schedule_cron)
+            except ValueError as exc:
+                raise ValidationError({'schedule_cron': str(exc)}) from None
+        if self.schedule_enabled and not self.schedule_time and not self.schedule_cron:
             raise ValidationError('Укажите время расписания.')
         if self.source_connection_id and (not self.source_connection.is_active or self.source_connection.role == 'TARGET'):
             raise ValidationError('Источник неактивен или имеет неверную роль.')
@@ -64,6 +71,12 @@ class ETLJob(models.Model):
         self.full_clean()
         if not self.is_active or self.load_mode != 'FULL':
             raise ValidationError('Задание отключено или Incremental Load ещё не реализован.')
+    @property
+    def schedule_label(self):
+        from transferdata.scheduling import schedule_label
+        if self.schedule_cron:
+            return schedule_label(self.schedule_cron)
+        return 'Ежедневно в ' + self.schedule_time.strftime('%H:%M') if self.schedule_time else 'Не задано'
     def __str__(self):
         return self.name
 

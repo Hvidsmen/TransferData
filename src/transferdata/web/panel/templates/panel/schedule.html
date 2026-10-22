@@ -1,0 +1,11 @@
+<div class="schedule-picker" data-advanced="{{ advanced|yesno:'true,false' }}" data-timezone="{% if not advanced %}{{ portal_timezone }}{% endif %}">
+  <div class="schedule-controls" hidden>
+    <div class="schedule-top"><label>Периодичность<select data-role="mode"><option value="daily">Ежедневно</option><option value="weekly">Еженедельно</option><option value="monthly">Ежемесячно</option>{% if advanced %}<option value="advanced">Расширенное расписание</option>{% endif %}</select></label>
+    <label data-role="time-label">Время начала<input type="time" step="60" value="02:00" data-role="time" aria-label="Время начала"></label></div>
+    <fieldset data-role="week" hidden><legend>Дни недели</legend><div class="schedule-weekdays">{% for value,label in weekdays %}<label><input type="checkbox" data-weekday="{{ value }}" value="{{ value }}"><span>{{ label }}</span></label>{% endfor %}</div></fieldset>
+    <label data-role="month" hidden>Число месяца<select data-role="day">{% for day in month_days %}<option value="{{ day }}">{{ day }}</option>{% endfor %}</select><small>Если такого числа нет в месяце, запуск пропускается.</small></label>
+    <p class="schedule-preview" aria-live="polite"></p>
+  </div>
+  <div class="schedule-raw"><label for="{{ widget.attrs.id }}">Cron{% include 'django/forms/widgets/input.html' %}</label><small>Пять полей: минута, час, день месяца, месяц, день недели.</small></div>
+  <noscript>Для выбора расписания включите JavaScript или укажите cron вручную.</noscript>
+</div>

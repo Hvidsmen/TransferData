@@ -94,6 +94,11 @@ class Job(models.Model):
         }]})
         return config
 
+    @property
+    def schedule_label(self):
+        from transferdata.scheduling import schedule_label
+        return schedule_label(self.cron)
+
 
 class Run(models.Model):
     ACTIONS = [("check", "Проверить подключения"), ("inspect", "Получить структуру источника"),

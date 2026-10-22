@@ -58,10 +58,18 @@ def cancel_pending(execution):
 
 def enqueue_due_jobs():
     from .models import ETLJob
+    from transferdata.scheduling import due_today
     now = timezone.localtime()
     count = 0
-    for job in ETLJob.objects.filter(is_active=True, schedule_enabled=True, load_mode='FULL',
-                                    schedule_time__lte=now.time().replace(tzinfo=None)):
+    for job in ETLJob.objects.filter(is_active=True, schedule_enabled=True, load_mode='FULL'):
+        if job.schedule_cron:
+            try:
+                if not due_today(job.schedule_cron, now):
+                    continue
+            except ValueError:
+                continue
+        elif job.schedule_time is None or job.schedule_time > now.time().replace(tzinfo=None):
+            continue
         try:
             enqueue(job, schedule_key=f'{job.pk}:{now.date().isoformat()}')
             count += 1
