@@ -3,8 +3,12 @@ import sqlparse
 from django.core.exceptions import ValidationError
 
 def identifier(value):
-    if not value or len(value) > 128 or not re.fullmatch(r'[\w\u0400-\u04ff][\w\u0400-\u04ff$@#]*', value):
-        raise ValidationError('Недопустимое имя SQL-объекта (до 128 символов).')
+    if not value or not value.strip():
+        raise ValidationError('Укажите имя SQL-объекта.')
+    if len(value) > 128:
+        raise ValidationError(f'Имя содержит {len(value)} символов. SQL Server допускает не более 128 символов в одном имени.')
+    if not re.fullmatch(r'[\w\u0400-\u04ff][\w\u0400-\u04ff$@# .-]*', value):
+        raise ValidationError('Начните имя с буквы, цифры или подчёркивания. Допустимы также точки, пробелы, дефисы и символы $ @ #. SQL-кавычки и квадратные скобки вводить не нужно.')
     return '[' + value + ']'
 
 def table_name(value):

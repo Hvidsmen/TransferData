@@ -36,6 +36,12 @@ class JobForm(StyledForm):
             'data-search-placeholder': 'Найти объект 1С…', 'data-empty-message': 'Нет загруженных объектов. Прочитайте структуру в разделе «Метаданные 1С».',
             'data-objects-url': reverse('erp:onec_options')})
         self.fields['group'].widget.attrs['data-searchable'] = 'true'
+        self.fields['target_schema'].label = 'Схема назначения'
+        self.fields['target_table'].label = 'Таблица назначения'
+        self.fields['source_table'].label = 'Таблица источника'
+        self.fields['target_schema'].help_text = 'Например, dbo. Имя схемы отдельно от таблицы.'
+        self.fields['target_table'].help_text = 'Например, БизнесРегионы или Справочник.БизнесРегионы. До 128 символов; точка здесь — часть имени таблицы. Скобки вводить не нужно.'
+        self.fields['source_table'].help_text = 'Таблица или схема.таблица, например dbo._Reference123. Для объектов 1С используйте тип источника «Объект 1С».'
         self.fields['schedule_enabled'].label = 'Включить расписание'
         self.fields['schedule_cron'].help_text = 'Время — в часовом поясе портала (по умолчанию Europe/Moscow).'
         if not self.is_bound and not self.instance.schedule_cron:

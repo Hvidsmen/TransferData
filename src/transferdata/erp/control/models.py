@@ -93,16 +93,25 @@ class ETLJob(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
     def clean(self):
-        identifier(self.target_schema)
-        identifier(self.target_table)
+        errors = {}
+        for field in ('target_schema', 'target_table'):
+            try:
+                identifier(getattr(self, field))
+            except ValidationError as exc:
+                errors[field] = exc.messages
         if self.source_type == 'TABLE':
-            table_name(self.source_table)
-        elif self.source_type == 'ONEC':
+            try:
+                table_name(self.source_table)
+            except ValidationError as exc:
+                errors['source_table'] = exc.messages
+        if errors:
+            raise ValidationError(errors)
+        if self.source_type == 'ONEC':
             from .onec import validate_object
             mapping = validate_object(self.one_c_object, self.source_connection if self.source_connection_id else None)
             if self.one_c_mapping != mapping:
                 raise ValidationError({'one_c_object': 'Структура 1С обновилась. Откройте настройки и сохраните задание повторно.'})
-        else:
+        elif self.source_type != 'TABLE':
             read_query(self.sql_query)
         if self.schedule_cron:
             from transferdata.scheduling import simple_schedule

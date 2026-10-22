@@ -133,3 +133,24 @@ def test_stale_heartbeat_detected(job):
     assert execution.heartbeat_stale
     execution.status = 'FAILED'
     assert not execution.heartbeat_stale
+
+
+def test_sql_names_allow_readable_target_names_and_report_exact_field(job):
+    job.target_table = 'Справочник.Бизнес регионы-ERP'
+    job.full_clean()
+    assert identifier(job.target_table) == '[Справочник.Бизнес регионы-ERP]'
+    job.target_table = 'bad]; DROP TABLE x--'
+    with pytest.raises(ValidationError) as exc:
+        job.full_clean()
+    assert 'target_table' in exc.value.message_dict
+    assert '128' not in str(exc.value.message_dict['target_table'])
+    job.target_table = 'x' * 129
+    with pytest.raises(ValidationError) as exc:
+        job.full_clean()
+    assert '129' in str(exc.value.message_dict['target_table'])
+    job.target_table = 'valid'
+    job.source_type = 'TABLE'
+    job.source_table = 'db.dbo.table'
+    with pytest.raises(ValidationError) as exc:
+        job.full_clean()
+    assert 'source_table' in exc.value.message_dict
