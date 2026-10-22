@@ -14,8 +14,14 @@ if not key_file.exists():
         pass
 SECRET_KEY = os.environ.get("TRANSFERDATA_SECRET_KEY") or key_file.read_text(encoding="ascii")
 DEBUG = False
-ALLOWED_HOSTS = os.environ.get("TRANSFERDATA_ALLOWED_HOSTS", "vm-dwh,localhost,127.0.0.1,[::1]").split(",")
-CSRF_TRUSTED_ORIGINS = list(filter(None, os.environ.get("TRANSFERDATA_CSRF_ORIGINS", "").split(",")))
+ALLOWED_HOSTS = [host.strip() for host in os.environ.get(
+    "TRANSFERDATA_ALLOWED_HOSTS", "vm-dwh,localhost,127.0.0.1,[::1],192.168.221.178,etl-dev-portal.daichi.ru"
+).split(",") if host.strip()]
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([
+    "http://etl-dev-portal.daichi.ru", "https://etl-dev-portal.daichi.ru",
+    "http://etl-dev-portal.daichi.ru:8003", "https://etl-dev-portal.daichi.ru:8003",
+    *[origin.strip() for origin in os.environ.get("TRANSFERDATA_CSRF_ORIGINS", "").split(",") if origin.strip()],
+]))
 ROOT_URLCONF = "transferdata.web.urls"
 WSGI_APPLICATION = "transferdata.web.wsgi.application"
 INSTALLED_APPS = [

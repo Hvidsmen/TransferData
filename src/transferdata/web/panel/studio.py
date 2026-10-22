@@ -15,6 +15,7 @@ from django.utils import timezone
 from .forms import JobForm
 from .models import Connection, Job, JobGroup, Run
 from .services import enqueue
+from .grouping import group_jobs
 
 
 def legacy_jobs(request):
@@ -87,9 +88,10 @@ def jobs(request):
         records = records.filter(group_id=int(group))
     if query:
         records = records.filter(Q(name__icontains=query) | Q(source_table__icontains=query) | Q(target_table__icontains=query) | Q(procedure_name__icontains=query))
+    page, sections, _ = group_jobs(records, request.GET.get("page"))
     return screen(request, "jobs.html", section="jobs", title="Задания", query=query, group=group, state=state,
                   groups=JobGroup.objects.all(),
-                  page=Paginator(records, 12).get_page(request.GET.get("page")))
+                  page=page, job_sections=sections)
 
 
 @staff_member_required(login_url="admin:login")

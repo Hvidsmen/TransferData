@@ -16,6 +16,44 @@ from .services import enqueue, execute_next, schedule_due
 
 
 class PanelTests(TestCase):
+    def test_corporate_domain_and_https_origin_accept_login(self):
+        host = 'etl-dev-portal.daichi.ru'
+        client = Client(enforce_csrf_checks=True)
+        self.assertEqual(client.get('/login/', HTTP_HOST=host).status_code, 200)
+        token = client.cookies['csrftoken'].value
+        response = client.post('/login/', {'username': 'operator', 'password': 'test-password-only',
+            'csrfmiddlewaretoken': token}, HTTP_HOST=host, HTTP_ORIGIN='https://' + host)
+        self.assertEqual(response.status_code, 302)
+        response = client.post('/login/', {'csrfmiddlewaretoken': client.cookies['csrftoken'].value},
+            HTTP_HOST=host, HTTP_ORIGIN='https://untrusted.example')
+        self.assertEqual(response.status_code, 403)
+
+    def test_display_keeps_whole_groups_together_and_counts_all_jobs(self):
+        self.client.force_login(self.user)
+        group = JobGroup.objects.create(name='Облака')
+        self.job.group = group
+        self.job.save()
+        for index in range(13):
+            Job.objects.create(name=f'Grouped {index}', group=group, connection=self.connection,
+                               source_table='Example', target_table=f'example_{index}')
+        response = self.client.get('/jobs/')
+        section = response.context['job_sections'][0]
+        self.assertEqual(section['name'], 'Облака')
+        self.assertEqual(section['count'], 14)
+        self.assertEqual(len(section['jobs']), 14)
+        self.assertContains(response, '<details class="job-group" open>')
+        for index in range(7):
+            g = JobGroup.objects.create(name=f'Группа {index}')
+            Job.objects.create(name=f'Another {index}', group=g, connection=self.connection,
+                               source_table='Example', target_table=f'another_{index}')
+        first = self.client.get('/jobs/').context['job_sections']
+        second = self.client.get('/jobs/', {'page': 2}).context['job_sections']
+        self.assertEqual(len(first), 6)
+        self.assertEqual(len(second), 2)
+        self.assertFalse({s['id'] for s in first} & {s['id'] for s in second})
+        filtered = self.client.get('/jobs/', {'q': 'Grouped 1'}).context['job_sections']
+        self.assertEqual(filtered[0]['count'], 4)
+
     def test_group_catalogue_rename_and_delete_keep_jobs(self):
         self.client.force_login(self.user)
         self.assertRedirects(self.client.post('/groups/', {'name': 'Справочники'}), '/groups/')

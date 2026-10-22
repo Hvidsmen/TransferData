@@ -1,7 +1,7 @@
 param(
     [ValidateSet("web", "worker", "erp-worker")][string]$Mode = "web",
     [string]$CredentialFile = ".state\postgres.credential.xml",
-    [string]$AllowedHosts = "vm-dwh,localhost,127.0.0.1,192.168.221.178"
+    [string]$AllowedHosts = "vm-dwh,localhost,127.0.0.1,192.168.221.178,etl-dev-portal.daichi.ru"
 )
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot

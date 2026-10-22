@@ -14,6 +14,7 @@ from django.views.decorators.http import require_POST
 from .models import DatabaseConnection, ETLJob, ETLExecution, ETLAuditLog
 from .forms import ConnectionForm, JobForm
 from transferdata.web.panel.models import JobGroup
+from transferdata.web.panel.grouping import group_jobs
 from .services import enqueue
 from transferdata.erp.engine.connections import test_connection
 from transferdata.erp.engine.exceptions import ETLError
@@ -81,7 +82,8 @@ def jobs(request):
         items = items.filter(load_mode=request.GET['mode'])
     latest = ETLExecution.objects.filter(job=OuterRef('pk')).order_by('-created_at')
     items = items.annotate(last_status=Subquery(latest.values('status')[:1]), last_duration=Subquery(latest.values('duration_seconds')[:1]), last_rows=Subquery(latest.values('rows_loaded')[:1]), last_started=Subquery(latest.values('created_at')[:1]))
-    return render(request, 'erp/control/jobs.html', {'items': items.order_by('name'), 'group': group, 'state': state,
+    page, sections, jobs_on_page = group_jobs(items, request.GET.get('page'))
+    return render(request, 'erp/control/jobs.html', {'items': jobs_on_page, 'job_sections': sections, 'page': page, 'group': group, 'state': state,
         'groups': JobGroup.objects.all()})
 
 @login_required

@@ -110,3 +110,21 @@ def test_bulk_active_protection_and_observer_permission(client, administrator_us
     assert not job.is_deleted
     client.post(url, {**payload, 'operation': 'restart'})
     assert job.executions.count() == 1
+
+
+def test_grouped_display_counts_jobs_with_different_latest_statuses(client, observer, job):
+    from transferdata.web.panel.models import JobGroup
+    group = JobGroup.objects.create(name='Одна группа')
+    job.group = group
+    job.save()
+    other = type(job).objects.create(name='Another', group=group,
+        source_connection=job.source_connection, target_connection=job.target_connection,
+        source_table='dbo.Other', target_table='Other')
+    ETLExecution.objects.create(job=job, status='SUCCESS')
+    ETLExecution.objects.create(job=other, status='FAILED')
+    client.force_login(observer)
+    response = client.get(reverse('erp:jobs'))
+    sections = response.context['job_sections']
+    assert len(sections) == 1
+    assert sections[0]['count'] == 2
+    assert {j.pk for j in sections[0]['jobs']} == {job.pk, other.pk}
