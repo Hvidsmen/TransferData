@@ -53,6 +53,8 @@ class OneCScan(models.Model):
     status = models.CharField(max_length=12, default='PENDING')
     message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True)
+    phase = models.CharField(max_length=12, blank=True)
     finished_at = models.DateTimeField(null=True)
 
     class Meta:

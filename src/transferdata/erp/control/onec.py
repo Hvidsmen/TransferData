@@ -144,11 +144,13 @@ def scan_next():
     if is_paused():
         return False
     scan = OneCScan.objects.filter(status='PENDING').select_related('connection', 'object').order_by('created_at', 'pk').first()
-    if scan is None or not OneCScan.objects.filter(pk=scan.pk, status='PENDING').update(status='RUNNING'):
+    if scan is None or not OneCScan.objects.filter(pk=scan.pk, status='PENDING').update(
+            status='RUNNING', started_at=timezone.now(), phase='READING'):
         return False
     fingerprint = connection_fingerprint(scan.connection)
     try:
         data = read_metadata(scan.connection, scan.object.name if scan.object_id else None)
+        OneCScan.objects.filter(pk=scan.pk).update(phase='SAVING')
         with transaction.atomic():
             current = DatabaseConnection.objects.select_for_update().get(pk=scan.connection_id)
             if connection_fingerprint(current) != fingerprint or not current.is_active or current.role == 'TARGET':

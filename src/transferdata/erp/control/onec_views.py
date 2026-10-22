@@ -6,9 +6,28 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from .models import DatabaseConnection, OneCObject
+from datetime import timedelta
+from django.utils import timezone
+from transferdata.web.maintenance import worker_paused
+from .models import DatabaseConnection, OneCObject, WorkerLease, ETLExecution
 from .onec import enqueue_scan, mapping_from_metadata
 from .views import login_required, administrator
+
+
+def scan_context(connection):
+    scan = connection.onec_scans.first() if connection else None
+    warning = ''
+    if scan and scan.status == 'PENDING':
+        lease = WorkerLease.objects.filter(pk=1).first()
+        if worker_paused('erp'):
+            warning = 'Обработчик приостановлен для обновления портала. Чтение начнётся после возобновления.'
+        elif not lease or not lease.heartbeat or lease.heartbeat < timezone.now() - timedelta(seconds=60):
+            warning = 'Нет свежего сигнала ERP-worker. Проверьте, что задача «ETL Dev — ERP» запущена в планировщике Windows.'
+        elif ETLExecution.objects.filter(status='RUNNING').exists():
+            warning = 'ERP-worker выполняет загрузку. Чтение метаданных начнётся после её завершения.'
+        else:
+            warning = 'Ожидаем свободный ERP-worker. Чтение базы ещё не началось.'
+    return {'scan': scan, 'scan_warning': warning, 'scan_now': timezone.now()}
 
 
 @login_required
@@ -23,7 +42,7 @@ def catalogue(request):
         objects = objects.filter(name__icontains=query)
     return render(request, 'erp/control/onec_catalogue.html', {'connections': connections, 'connection': connection,
         'query': query, 'page': Paginator(objects, 40).get_page(request.GET.get('page')),
-        'scan': connection.onec_scans.first() if connection else None})
+        **scan_context(connection)})
 
 
 @login_required
@@ -31,7 +50,7 @@ def detail(request, pk):
     obj = get_object_or_404(OneCObject.objects.select_related('connection'), pk=pk, is_active=True)
     columns = mapping_from_metadata(obj.metadata)['columns'] if obj.metadata else []
     return render(request, 'erp/control/onec_object.html', {'object': obj, 'columns': columns,
-        'scan': obj.connection.onec_scans.first()})
+        **scan_context(obj.connection)})
 
 
 @administrator

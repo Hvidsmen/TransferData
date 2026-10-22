@@ -59,9 +59,7 @@ class Command(BaseCommand):
                 WorkerLease.objects.update_or_create(pk=1, defaults={'owner': owner, 'heartbeat': timezone.now()})
                 execution = claim()
                 scanned = False
-                if not execution:
-                    scanned = scan_next()
-                if execution:
+                if execution or OneCScan.objects.filter(status='PENDING').exists():
                     stop = threading.Event()
                     def heartbeat():
                         close_old_connections()
@@ -69,7 +67,8 @@ class Command(BaseCommand):
                             while not stop.wait(10):
                                 try:
                                     now = timezone.now()
-                                    ETLExecution.objects.filter(pk=execution.pk, status='RUNNING').update(heartbeat=now)
+                                    if execution:
+                                        ETLExecution.objects.filter(pk=execution.pk, status='RUNNING').update(heartbeat=now)
                                     WorkerLease.objects.filter(pk=1, owner=owner).update(heartbeat=now)
                                 except OperationalError:
                                     # SQLite may briefly be busy; progress updates also send heartbeats.
@@ -79,7 +78,10 @@ class Command(BaseCommand):
                     thread = threading.Thread(target=heartbeat, daemon=True)
                     thread.start()
                     try:
-                        execute(execution)
+                        if execution:
+                            execute(execution)
+                        else:
+                            scanned = scan_next()
                     finally:
                         stop.set()
                         thread.join(timeout=35)

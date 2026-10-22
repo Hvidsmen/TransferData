@@ -92,3 +92,16 @@ body{font-size:14px}.brand small{white-space:nowrap;font-size:7px;letter-spacing
 .onec-title { overflow-wrap:anywhere; }
 
 .onec-query { max-width:100%; box-sizing:border-box; overflow:auto; padding:20px; background:#f8faff; border-radius:10px; font-size:12px; }
+
+/* Metadata progress: real stages with an indeterminate activity indicator. */
+.onec-progress-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+.onec-elapsed{color:var(--muted,#7383a2);font-size:12px;font-variant-numeric:tabular-nums}
+.onec-steps{display:flex;flex-wrap:wrap;gap:12px 28px;padding:0;margin:22px 0 16px;list-style:none;color:#8794ad;font-size:12px}
+.onec-steps li{display:flex;align-items:center;gap:8px}.onec-steps li:before{content:"";width:8px;height:8px;border:2px solid #dce3f0;border-radius:50%;flex-shrink:0}
+.onec-steps .done{color:#268b72}.onec-steps .done:before{background:#31b28d;border-color:#31b28d}.onec-steps .current{color:#575bf3;font-weight:600}.onec-steps .current:before{border-color:#6667fa;box-shadow:0 0 0 4px #eeeeff}
+.onec-progress-track{height:6px;overflow:hidden;background:#eceeff;border-radius:6px}.onec-progress-track span{display:block;width:30%;height:100%;background:linear-gradient(90deg,#aaa7ff,#5b5df6);border-radius:6px;animation:onec-travel 2s ease-in-out infinite}
+.onec-status .onec-progress-notice{padding:12px 14px;border-radius:8px;background:#f6f7fd;color:#526386;margin-top:16px}
+.onec-status--success{border-left-color:#31b28d}.onec-status--failed{border-left-color:#ed7183}.onec-status--failed .onec-steps .current{color:#ba4b61}
+@keyframes onec-travel{from{transform:translateX(-100%)}to{transform:translateX(340%)}}
+@media(prefers-reduced-motion:reduce){.onec-progress-track span{animation:none;width:100%;opacity:.5}}
+@media(max-width:600px){.onec-progress-heading{align-items:flex-start;flex-direction:column;gap:8px}.onec-steps{display:grid;grid-template-columns:1fr 1fr;gap:16px 12px}}

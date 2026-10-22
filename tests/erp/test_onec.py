@@ -254,3 +254,30 @@ def test_refresh_requires_csrf(administrator_user, job):
     client = Client(enforce_csrf_checks=True)
     client.force_login(administrator_user)
     assert client.post(reverse('erp:onec_refresh', args=[job.source_connection_id])).status_code == 403
+
+
+def test_scan_progress_reports_missing_worker_and_real_phases(client, administrator_user, job, definition):
+    from django.utils import timezone
+    from transferdata.erp.control.models import WorkerLease
+    client.force_login(administrator_user)
+    scan, _ = enqueue_scan(job.source_connection)
+    url = reverse('erp:onec_catalogue') + f'?connection={job.source_connection_id}'
+    response = client.get(url)
+    assert 'Нет свежего сигнала ERP-worker' in response.content.decode()
+    assert 'data-scan-created' in response.content.decode()
+    WorkerLease.objects.update_or_create(pk=1, defaults={'owner': 'test', 'heartbeat': timezone.now()})
+    assert 'Ожидаем свободный ERP-worker' in client.get(url).content.decode()
+
+    def metadata(*args):
+        scan.refresh_from_db()
+        assert scan.status == 'RUNNING' and scan.phase == 'READING' and scan.started_at
+        content = client.get(url).content.decode()
+        assert 'Чтение метаданных из базы 1С' in content
+        assert 'Процент готовности источник не сообщает' in content
+        return {'objects': [{'name': definition['name'], 'kind': 'Справочник'}]}
+
+    with patch('transferdata.erp.control.onec.read_metadata', side_effect=metadata):
+        assert scan_next()
+    scan.refresh_from_db()
+    assert scan.status == 'SUCCESS' and scan.phase == 'SAVING' and scan.finished_at >= scan.started_at
+    assert 'Готово' in client.get(url).content.decode()
