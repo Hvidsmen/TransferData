@@ -1,10 +1,12 @@
-from django.urls import path
+from django.urls import path, include
 from django.views.generic import RedirectView
 from transferdata.web.panel.admin import site
 from transferdata.web.panel import studio
 
 urlpatterns = [
-    path("", studio.overview, name="td_overview"),
+    path("", studio.portal, name="etl_portal"),
+    path("transferdata/", studio.overview, name="td_overview"),
+    path("erp/", include("transferdata.erp.urls")),
     path("runs/", studio.history, name="td_history"),
     path("runs/<int:pk>/", studio.run_detail, name="td_run"),
     path("jobs/", studio.jobs, name="td_jobs"),

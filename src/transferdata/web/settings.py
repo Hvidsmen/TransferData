@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
     "django.contrib.humanize", "transferdata.web.panel",
+    "transferdata.erp.control.apps.ERPConfig",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -39,6 +40,7 @@ TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates",
                   "django.template.context_processors.request",
                   "django.contrib.auth.context_processors.auth",
                   "django.contrib.messages.context_processors.messages",
+                  "transferdata.web.panel.context.portal",
               ]}}]
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3",
                          "NAME": STATE_DIR / "panel.sqlite3", "OPTIONS": {"timeout": 30}}}
@@ -58,3 +60,5 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = os.environ.get("TRANSFERDATA_HTTPS", "0") == "1"
 CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "/"

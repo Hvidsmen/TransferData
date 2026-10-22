@@ -34,6 +34,17 @@ class PanelTests(TestCase):
         self.assertRedirects(self.client.post("/login/", {"username": "operator",
             "password": "test-password-only", "next": "/"}), "/")
 
+    def test_portal_separates_subsystems_and_keeps_transferdata(self):
+        self.client.force_login(self.user)
+        response = self.client.get("/")
+        self.assertContains(response, "ETL Dev")
+        self.assertContains(response, "ERP_to_DWH")
+        self.assertContains(response, 'href="/erp/"')
+        self.assertContains(response, 'href="/transferdata/"')
+        response = self.client.get("/transferdata/")
+        self.assertContains(response, "Данные в движении")
+        self.assertEqual(self.client.get("/jobs/").status_code, 200)
+
     def test_nonstaff_cannot_access_panel(self):
         self.user.is_staff = False
         self.user.save()

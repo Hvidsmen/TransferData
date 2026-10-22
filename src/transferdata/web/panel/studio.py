@@ -25,7 +25,12 @@ def legacy_jobs(request):
 
 
 def screen(request, template, **context):
-    return render(request, "studio/" + template, {"now": timezone.localtime(), **context})
+    return render(request, "studio/" + template, {"now": timezone.localtime(), "subsystem": "transferdata", **context})
+
+
+@staff_member_required(login_url="admin:login")
+def portal(request):
+    return screen(request, "portal.html", section="portal", subsystem=None, title="Портал ETL Dev")
 
 
 @staff_member_required(login_url="admin:login")

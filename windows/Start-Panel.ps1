@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("web", "worker")][string]$Mode = "web",
+    [ValidateSet("web", "worker", "erp-worker")][string]$Mode = "web",
     [string]$CredentialFile = ".state\postgres.credential.xml",
     [string]$AllowedHosts = "vm-dwh,localhost,127.0.0.1,192.168.221.178"
 )
@@ -16,6 +16,10 @@ if (Test-Path "$projectRoot\.venv\Scripts\transferdata.exe") {
 }
 if ($Mode -eq "web") {
     & $python @pythonArgs runpanel --host 0.0.0.0 --port 8003
+    exit $LASTEXITCODE
+}
+if ($Mode -eq "erp-worker") {
+    & $python @pythonArgs etl_worker
     exit $LASTEXITCODE
 }
 if (-not [IO.Path]::IsPathRooted($CredentialFile)) {

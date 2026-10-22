@@ -10,7 +10,7 @@ dependencies = [
   "pymssql>=2.3.4,<3",
   "psycopg[binary]>=3.2,<4",
   "portalocker>=3,<4",
-  "pyodbc>=5.2,<6; sys_platform == 'win32'",
+  "pyodbc>=5.2,<6",
   "tzdata>=2025.2",
   "Django>=5.2,<5.3",
   "waitress>=3,<4",
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8,<9"]
+dev = ["pytest>=8,<9", "pytest-django>=4.8,<5"]
 
 [project.scripts]
 transferdata = "transferdata.cli:main"
@@ -29,3 +29,5 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+DJANGO_SETTINGS_MODULE = "transferdata.web.settings"
+markers = ["mssql: requires real SQL Server and ODBC Driver 18"]

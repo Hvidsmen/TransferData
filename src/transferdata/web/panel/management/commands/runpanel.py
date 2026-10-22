@@ -11,5 +11,5 @@ class Command(BaseCommand):
         parser.add_argument("--port", type=int, default=8003)
 
     def handle(self, *args, **options):
-        self.stdout.write(f"TransferData listening on {options['host']}:{options['port']}")
+        self.stdout.write(f"ETL Dev listening on {options['host']}:{options['port']}")
         serve(application, host=options["host"], port=options["port"], threads=4)

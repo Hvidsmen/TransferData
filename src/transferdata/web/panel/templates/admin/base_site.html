@@ -1,8 +1,8 @@
 {% extends "admin/base.html" %}
 {% load static %}
-{% block title %}{{ title }} · TransferData{% endblock %}
+{% block title %}{{ title }} · ETL Dev{% endblock %}
 {% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'panel/theme.css' %}?v=20261022">{% endblock %}
-{% block branding %}<a class="td-brand" href="{% url 'admin:index' %}"><span class="td-brand-mark">⇄</span><span>Transfer<span class="td-brand-accent">Data</span><small>DATA OPERATIONS</small></span></a>{% endblock %}
+{% block branding %}<a class="td-brand" href="{% url 'admin:index' %}"><span class="td-brand-mark">⇄</span><span>ETL <span class="td-brand-accent">Dev</span><small>DATA OPERATIONS</small></span></a>{% endblock %}
 {% block nav-global %}{% if user.is_active and user.is_staff %}<nav class="td-topnav" aria-label="Основная навигация">
 <a href="{% url 'admin:index' %}">Обзор</a>
 {% if perms.panel.view_job %}<a href="{% url 'admin:panel_job_changelist' %}">Задания</a>{% endif %}
