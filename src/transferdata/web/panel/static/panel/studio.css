@@ -46,3 +46,20 @@ body{font-size:14px}.brand small{white-space:nowrap;font-size:7px;letter-spacing
 .standalone-search>select, .bulk-bar>select { border:1px solid #dce4f2; border-radius:10px; background:#fff; color:#647896; padding:11px 13px; font:inherit; font-size:12px; }
 @media(max-width:760px) { .smart-select { min-width:170px; flex:1; } .bulk-bar { padding:15px; } .bulk-bar .smart-select { flex-basis:100%; } .standalone-search .smart-select { flex-basis:100%; } }
 .smart-select-toggle>span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Group catalogue editors. */
+.group-create { display:flex; align-items:flex-start; gap:18px; padding:24px; margin-bottom:24px; }
+.group-name-field { flex:1; max-width:620px; min-width:0; }
+.group-name-field label { display:block; margin-bottom:10px; color:#415675; font-size:12px; font-weight:600; }
+.group-name-field input, .group-rename input[name=name] { display:block; width:100%; min-width:0; height:46px; box-sizing:border-box; padding:12px 15px; border:1px solid #dce4f2; border-radius:10px; background:#fbfcff; color:#344c70; font:inherit; font-size:13px; transition:border-color .15s, box-shadow .15s, background .15s; }
+.group-name-field input::placeholder, .group-rename input[name=name]::placeholder { color:#9baac0; }
+.group-name-field input:hover, .group-rename input[name=name]:hover { border-color:#b8c4e1; }
+.group-name-field input:focus, .group-rename input[name=name]:focus { outline:none; border-color:#7c87f5; background:#fff; box-shadow:0 0 0 4px #777ff214; }
+.group-name-field p { margin:9px 0 0; color:#91a0b9; font-size:11px; line-height:1.6; }
+.group-create>.btn { min-height:46px; margin-top:24px; white-space:nowrap; }
+.group-create>.errorlist { flex-basis:100%; }
+.group-create:has(>.errorlist) { flex-wrap:wrap; }
+.group-rename { display:flex; align-items:center; gap:12px; max-width:720px; }
+.group-rename input[name=name] { flex:1; }
+.group-rename .btn { white-space:nowrap; min-height:42px; }
+@media(max-width:760px) { .group-create { flex-direction:column; gap:16px; padding:20px; } .group-name-field { width:100%; } .group-create>.btn { margin-top:0; width:100%; } .group-rename { flex-wrap:wrap; min-width:220px; } }
