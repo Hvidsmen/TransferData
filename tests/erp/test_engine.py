@@ -143,8 +143,10 @@ def test_connection_failure_redacted(job):
     assert 'secret' not in str(error.value)
 
 @pytest.mark.django_db
-def test_connection_escape_tls_timeout_and_close(job, monkeypatch):
+@pytest.mark.parametrize('trust', [False, True])
+def test_connection_escape_tls_timeout_and_close(job, monkeypatch, trust):
     conf = job.source_connection
+    conf.trust_server_certificate = trust
     conf.authentication_type, conf.username, conf.credential_reference = 'SQL', 'reader', 'TEST_ETL_PASSWORD'
     monkeypatch.setenv('TEST_ETL_PASSWORD', 'p};UID=admin')
     with patch('transferdata.erp.engine.connections.pyodbc.connect') as driver:
@@ -152,7 +154,8 @@ def test_connection_escape_tls_timeout_and_close(job, monkeypatch):
             assert conn.timeout == 12
         text = driver.call_args.args[0]
         assert 'PWD={p}};UID=admin}' in text
-        assert 'Encrypt={yes}' in text and 'TrustServerCertificate={no}' in text
+        assert 'Encrypt={yes}' in text
+        assert ('TrustServerCertificate={yes}' if trust else 'TrustServerCertificate={no}') in text
         driver.return_value.close.assert_called_once()
 
 def test_target_lock_contention_never_creates_stage(loader):

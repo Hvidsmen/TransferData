@@ -48,6 +48,24 @@ def test_job_form_audit(client, administrator_user, job):
     assert ETLAuditLog.objects.get().actor == administrator_user
     assert job.__class__.objects.get(name='New job').created_by == administrator_user
 
+
+def test_connection_certificate_option_can_be_saved(client, administrator_user, job):
+    client.force_login(administrator_user)
+    connection = job.source_connection
+    assert not connection.trust_server_certificate
+    data = {'name': connection.name, 'server': connection.server, 'port': connection.port,
+            'database': connection.database, 'authentication_type': 'WINDOWS', 'driver': 'ODBC Driver 17 for SQL Server',
+            'connection_timeout': 10, 'query_timeout': 300, 'role': 'SOURCE', 'is_active': 'on',
+            'trust_server_certificate': 'on'}
+    url = reverse('erp:connection_edit', args=[connection.pk])
+    assert client.post(url, data).status_code == 302
+    connection.refresh_from_db()
+    assert connection.trust_server_certificate
+    data.pop('trust_server_certificate')
+    assert client.post(url, data).status_code == 302
+    connection.refresh_from_db()
+    assert not connection.trust_server_certificate
+
 def test_history_filters(client, observer, job):
     ETLExecution.objects.create(job=job, status='SUCCESS')
     ETLExecution.objects.create(job=job, status='FAILED')

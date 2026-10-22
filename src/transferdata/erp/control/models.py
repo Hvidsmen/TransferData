@@ -15,6 +15,8 @@ class DatabaseConnection(models.Model):
     username = models.CharField(max_length=128, blank=True)
     credential_reference = models.CharField(max_length=128, blank=True, validators=[RegexValidator(r'^[A-Za-z_][A-Za-z0-9_]*$')])
     driver = models.CharField(max_length=128, default='ODBC Driver 18 for SQL Server')
+    trust_server_certificate = models.BooleanField('Доверять сертификату SQL Server без проверки', default=False,
+        help_text='Шифрование остаётся включённым. Отметьте для подключения без проверки доверия сертификату сервера.')
     connection_timeout = models.PositiveIntegerField(default=10, validators=[MinValueValidator(1), MaxValueValidator(30)])
     query_timeout = models.PositiveIntegerField(default=300, validators=[MinValueValidator(1), MaxValueValidator(86400)])
     role = models.CharField(max_length=10, choices=[('SOURCE', 'Source'), ('TARGET', 'Target'), ('BOTH', 'Both')], default='SOURCE')

@@ -9,7 +9,7 @@ def escaped(value):
 @contextmanager
 def connect(config, timeout=None):
     config.full_clean()
-    parts = {'DRIVER': config.driver, 'SERVER': f'{config.server},{config.port}', 'DATABASE': config.database, 'Encrypt': 'yes', 'TrustServerCertificate': 'no', 'APP': 'ETL Control Center'}
+    parts = {'DRIVER': config.driver, 'SERVER': f'{config.server},{config.port}', 'DATABASE': config.database, 'Encrypt': 'yes', 'TrustServerCertificate': 'yes' if config.trust_server_certificate else 'no', 'APP': 'ETL Control Center'}
     if config.authentication_type == 'WINDOWS':
         parts['Trusted_Connection'] = 'yes'
     else:
