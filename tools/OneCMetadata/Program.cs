@@ -16,7 +16,7 @@ try
 {
     var request = JsonSerializer.Deserialize<Request>(Console.In.ReadToEnd(),
         new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new ArgumentException();
-    if (request.Action is not ("catalog" or "object") || string.IsNullOrWhiteSpace(request.Server)
+    if (request.Action is not ("catalog" or "object" or "objects") || string.IsNullOrWhiteSpace(request.Server)
         || string.IsNullOrWhiteSpace(request.Database) || request.Port is < 1 or > 65535
         || request.Timeout is < 1 or > 30 || request.Authentication is not ("WINDOWS" or "SQL"))
         throw new ArgumentException();
@@ -46,61 +46,72 @@ try
     }
     else
     {
-        // Reject ordinary database tables: GetMetadataObject alone also accepts SQL table names.
-        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Split('.').Length != 2
-            || provider.GetMetadataEntry(request.Name) is null) throw new ArgumentException();
-        var entity = provider.GetMetadataObject(request.Name) ?? throw new InvalidOperationException();
-        var targets = new Dictionary<string, object>();
-        string[] References(PropertyDefinition property)
+        object ReadObject(string objectName)
         {
-            if (!property.Type.IsEntity || property.Name == "Ссылка") return Array.Empty<string>();
-            var names = provider.ResolveReferences(property.References);
-            if (property.Type.TypeCode > 0)
+            // Reject ordinary database tables: GetMetadataObject alone also accepts SQL table names.
+            if (string.IsNullOrWhiteSpace(objectName) || objectName.Split('.').Length != 2
+                || provider.GetMetadataEntry(objectName) is null) throw new ArgumentException();
+            var entity = provider.GetMetadataObject(objectName) ?? throw new InvalidOperationException();
+            var targets = new Dictionary<string, object>();
+            string[] References(PropertyDefinition property)
             {
-                var entry = provider.GetMetadataEntry(property.Type.TypeCode);
-                if (entry is not null) names = new List<string> { entry.FullName };
-            }
-            foreach (string name in names.Distinct())
-            {
-                if (targets.ContainsKey(name)) continue;
-                var entry = provider.GetMetadataEntry(name);
-                if (entry is null || entry.Type is not ("Справочник" or "Документ" or "Перечисление")) continue;
-                // Enumeration entities expose values, not physical reference columns.
-                // Resolve them directly from configuration; no table join is needed.
-                if (entry.Type == "Перечисление")
+                if (!property.Type.IsEntity || property.Name == "Ссылка") return Array.Empty<string>();
+                var names = provider.ResolveReferences(property.References);
+                if (property.Type.TypeCode > 0)
                 {
-                    targets[name] = new { name, kind = entry.Type, type_code = entry.Code,
-                        values = provider.GetEnumerationValues(name).Select(value => new {
-                            name = value.Key, hex = Convert.ToHexString(UuidConverter.GetDbUuid(value.Value))
-                        }).ToArray() };
-                    continue;
+                    var entry = provider.GetMetadataEntry(property.Type.TypeCode);
+                    if (entry is not null) names = new List<string> { entry.FullName };
                 }
-                var target = provider.GetMetadataObject(name);
-                string? Field(string field) => target.GetPropertyByName(field)?.Columns.SingleOrDefault()?.Name;
-                string? id = Field("Ссылка");
-                if (id is null) continue;
-                targets[name] = new { name, kind = entry.Type, type_code = entry.Code,
-                    table = target.DbName, id, description = Field("Наименование"), date = Field("Дата"),
-                    number = Field("Номер"), partitions = Partitions(target) };
+                foreach (string name in names.Distinct())
+                {
+                    if (targets.ContainsKey(name)) continue;
+                    var entry = provider.GetMetadataEntry(name);
+                    if (entry is null || entry.Type is not ("Справочник" or "Документ" or "Перечисление")) continue;
+                    // Enumeration entities expose values, not physical reference columns.
+                    // Resolve them directly from configuration; no table join is needed.
+                    if (entry.Type == "Перечисление")
+                    {
+                        targets[name] = new { name, kind = entry.Type, type_code = entry.Code,
+                            values = provider.GetEnumerationValues(name).Select(value => new {
+                                name = value.Key, hex = Convert.ToHexString(UuidConverter.GetDbUuid(value.Value))
+                            }).ToArray() };
+                        continue;
+                    }
+                    var target = provider.GetMetadataObject(name);
+                    string? Field(string field) => target.GetPropertyByName(field)?.Columns.SingleOrDefault()?.Name;
+                    string? id = Field("Ссылка");
+                    if (id is null) continue;
+                    targets[name] = new { name, kind = entry.Type, type_code = entry.Code,
+                        table = target.DbName, id, description = Field("Наименование"), date = Field("Дата"),
+                        number = Field("Номер"), partitions = Partitions(target) };
+                }
+                return names.Distinct().ToArray();
             }
-            return names.Distinct().ToArray();
+            var properties = entity.Properties.Select(property => new
+            {
+                name = property.Name, type = property.Type.ToString(),
+                references = References(property), is_reference = property.Type.IsEntity && property.Name != "Ссылка",
+                columns = property.Columns.Select(column => new {
+                    name = column.Name, purpose = column.Purpose.ToString(), type = column.Type.ToString(),
+                    row_version = column.IsGenerated && column.Name == "_Version",
+                    is_date = column.Type.IsDateTime && !column.Type.IsUnion
+                }).ToArray()
+            }).ToArray();
+            return new { protocol = 1, ok = true,
+                configuration = config.Name, version = config.AppConfigVersion, year_offset = config.YearOffset,
+                name = objectName, table = entity.DbName, properties,
+                reference_version = 1, reference_targets = targets.Values.ToArray(), partitions = Partitions(entity),
+                table_parts = entity.Entities.Select(part => new { name = part.Name, table = part.DbName }).ToArray() };
         }
-        var properties = entity.Properties.Select(property => new
+        if (request.Action == "objects")
         {
-            name = property.Name, type = property.Type.ToString(),
-            references = References(property), is_reference = property.Type.IsEntity && property.Name != "Ссылка",
-            columns = property.Columns.Select(column => new {
-                name = column.Name, purpose = column.Purpose.ToString(), type = column.Type.ToString(),
-                row_version = column.IsGenerated && column.Name == "_Version",
-                is_date = column.Type.IsDateTime && !column.Type.IsUnion
-            }).ToArray()
-        }).ToArray();
-        Console.WriteLine(JsonSerializer.Serialize(new { protocol = 1, ok = true,
-            configuration = config.Name, version = config.AppConfigVersion, year_offset = config.YearOffset,
-            name = request.Name, table = entity.DbName, properties,
-            reference_version = 1, reference_targets = targets.Values.ToArray(), partitions = Partitions(entity),
-            table_parts = entity.Entities.Select(part => new { name = part.Name, table = part.DbName }).ToArray() }));
+            if (request.Names is null || request.Names.Length is < 1 or > 64) throw new ArgumentException();
+            var objects = request.Names.Distinct().Select(ReadObject).ToArray();
+            Console.WriteLine(JsonSerializer.Serialize(new { protocol = 1, ok = true, objects }));
+        }
+        else Console.WriteLine(JsonSerializer.Serialize(ReadObject(request.Name)));
     }
+
     return 0;
 }
 catch (Exception)
@@ -128,4 +139,5 @@ sealed class Request
     public bool TrustCertificate { get; set; }
     public int Timeout { get; set; } = 10;
     public string Name { get; set; } = "";
+    public string[] Names { get; set; } = Array.Empty<string>();
 }

@@ -308,3 +308,22 @@ def test_catalogue_defaults_to_latest_source_and_groups_filters_paginate(client,
     assert all(obj.kind == 'Справочник' for obj in page2.context['page'])
     assert client.get(url, {'connection': job.source_connection_id}).context['connection'] == job.source_connection
     assert client.get(url, {'kind': 'НетТакогоТипа'}).context['page'].paginator.count == 0
+
+
+def test_reader_batch_keeps_protocol_and_uses_stdin(job, settings, tmp_path):
+    settings.STATE_DIR = tmp_path
+    for name in ['dotnet', 'reader.dll']:
+        (tmp_path / name).write_text('fake')
+    (tmp_path / 'onec-helper.json').write_text(json.dumps({'protocol': 1,
+        'dotnet': str(tmp_path / 'dotnet'), 'assembly': str(tmp_path / 'reader.dll')}))
+    names = ['Документ.Поступление', 'Справочник.Контрагенты']
+    def run(command, **kwargs):
+        payload = json.loads(kwargs['input'])
+        assert payload['action'] == 'objects' and payload['names'] == names
+        assert names[0] not in ' '.join(command)
+        kwargs['stdout'].write(b'{"protocol":1,"ok":true,"objects":[]}')
+        return SimpleNamespace(returncode=0)
+    with patch('subprocess.run', side_effect=run):
+        assert read_metadata(job.source_connection, names=names)['objects'] == []
+    with pytest.raises(ETLError):
+        read_metadata(job.source_connection, names=[])

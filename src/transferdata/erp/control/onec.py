@@ -24,7 +24,7 @@ def connection_fingerprint(connection):
     return hashlib.sha256(json.dumps(values, ensure_ascii=False).encode()).hexdigest()
 
 
-def read_metadata(connection, name=None):
+def read_metadata(connection, name=None, *, names=None):
     manifest_path = settings.STATE_DIR / 'onec-helper.json'
     try:
         manifest = json.loads(manifest_path.read_text(encoding='utf-8-sig'))
@@ -42,6 +42,10 @@ def read_metadata(connection, name=None):
                'port': connection.port, 'database': connection.database, 'authentication': connection.authentication_type,
                'username': connection.username, 'password': password, 'trustCertificate': connection.trust_server_certificate,
                'timeout': connection.connection_timeout, 'name': name or ''}
+    if names is not None:
+        if name or not isinstance(names, list) or not 1 <= len(names) <= 64 or not all(isinstance(n, str) and n for n in names):
+            raise ETLError('Для пакетного чтения укажите от 1 до 64 имён объектов.')
+        request.update(action='objects', names=names)
     try:
         with tempfile.TemporaryFile() as output:
             result = subprocess.run(command, input=json.dumps(request).encode('utf-8'), stdout=output,
