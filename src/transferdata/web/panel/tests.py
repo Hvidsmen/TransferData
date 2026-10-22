@@ -492,3 +492,39 @@ class PanelTests(TestCase):
             finally:
                 src.dispose()
                 dst.dispose()
+
+    def test_overview_monitor_has_one_execution_per_job_and_ignores_checks(self):
+        self.client.force_login(self.user)
+        Run.objects.create(job=self.job, action='run', status='failed', snapshot={}, rows=12)
+        latest = Run.objects.create(job=self.job, action='run', status='success', snapshot={}, rows=99, seconds=2)
+        Run.objects.create(job=self.job, action='check', status='failed', snapshot={})
+        procedure = Job.objects.create(name='Процедура', connection=self.connection, job_type='procedure', procedure_name='sp_ETL')
+        Run.objects.create(job=procedure, action='execute', status='running', snapshot={})
+        never = Job.objects.create(name='Без запусков', connection=self.connection, source_table='Example', target_table='example')
+        archived = Job.objects.create(name='Архив', connection=self.connection, archived=True)
+        Job.objects.create(name='Удалено', connection=self.connection, is_deleted=True)
+        response = self.client.get('/transferdata/')
+        items = {item['name']: item for item in response.context['monitor_jobs']}
+        self.assertEqual(len(items), 4)
+        self.assertEqual(items[self.job.name]['status'], 'success')
+        self.assertEqual(items[self.job.name]['rows'], 99)
+        self.assertEqual(items[self.job.name]['run_url'], f'/runs/{latest.pk}/')
+        self.assertEqual(items[procedure.name]['status'], 'running')
+        self.assertEqual(items[never.name]['status'], 'never')
+        self.assertTrue(items[archived.name]['archived'])
+        self.assertContains(response, 'id="live-job-monitor"')
+        self.assertContains(response, 'Поиск заданий в обзоре')
+
+    def test_monitor_does_not_disclose_runs_without_permission(self):
+        from django.contrib.auth.models import Permission
+        from .monitoring import transferdata_jobs
+        viewer = get_user_model().objects.create_user('monitor-viewer', is_staff=True)
+        self.assertEqual(transferdata_jobs(viewer), [])
+        viewer.user_permissions.add(Permission.objects.get(codename='view_job', content_type__app_label='panel'))
+        viewer = get_user_model().objects.get(pk=viewer.pk)
+        Run.objects.create(job=self.job, action='run', status='failed', snapshot={}, rows=123)
+        items = transferdata_jobs(viewer)
+        self.assertEqual(items[0]['status'], 'restricted')
+        self.assertIsNone(items[0]['rows'])
+        self.assertEqual(items[0]['run_url'], '')
+        self.assertEqual(items[0]['url'], '')

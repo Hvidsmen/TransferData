@@ -30,11 +30,12 @@ def administrator(view):
 
 @login_required
 def dashboard(request):
+    from transferdata.web.panel.monitoring import erp_jobs
     executions = ETLExecution.objects.select_related('job')
     day = executions.filter(created_at__gte=timezone.now() - timedelta(days=1))
     stats = [('Всего заданий', ETLJob.objects.filter(is_deleted=False).count()), ('Активных', ETLJob.objects.filter(is_active=True, is_deleted=False, archived=False).count()), ('Успешных за сутки', day.filter(status='SUCCESS').count()), ('Ошибок за сутки', day.filter(status='FAILED').count()), ('Выполняется', executions.filter(status='RUNNING').count()), ('Загружено строк', executions.filter(status='SUCCESS').aggregate(v=Sum('rows_loaded'))['v'] or 0), ('Среднее время, с', round(executions.filter(status='SUCCESS').aggregate(v=Avg('duration_seconds'))['v'] or 0, 2))]
     chart = list(executions.filter(status='SUCCESS').order_by('-created_at').values('id', 'duration_seconds')[:30])[::-1]
-    return render(request, 'erp/control/dashboard.html', {'stats': stats, 'recent': executions[:10], 'errors': executions.filter(status='FAILED')[:5], 'chart': chart})
+    return render(request, 'erp/control/dashboard.html', {'stats': stats, 'recent': executions[:10], 'errors': executions.filter(status='FAILED')[:5], 'chart': chart, 'monitor_jobs': erp_jobs()})
 
 @login_required
 def connections(request):

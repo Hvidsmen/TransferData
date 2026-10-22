@@ -1,6 +1,7 @@
 {% extends 'erp/base.html' %}{% load static %}{% block erp_content %}
 <h2>Обзор загрузок</h2>
 <div class="row g-3 mb-4">{% for label,value in stats %}<div class="col-md-3"><div class="card p-3"><small>{{ label }}</small><strong class="fs-3">{{ value }}</strong></div></div>{% endfor %}</div>
+{% include 'studio/job_monitor.html' %}
 {% if chart %}<div id="durations" class="card mb-4" style="min-height:280px"></div>{{ chart|json_script:'chart-data' }}<script src="{% static 'erp/vendor/plotly.min.js' %}"></script><script>const d=JSON.parse(document.getElementById('chart-data').textContent);Plotly.newPlot('durations',[{x:d.map(x=>String(x.id)),y:d.map(x=>x.duration_seconds),type:'bar',marker:{color:'#7b88ee'}}],{height:280,title:{text:'Длительность успешных загрузок'},xaxis:{title:{text:'Запуск'}},yaxis:{title:{text:'Секунды'}}},{responsive:true});</script>
 {% else %}<div class="card p-4 mb-4"><strong>Здесь появится история длительности</strong><p class="text-muted mb-0 mt-2">График будет построен после первой успешной загрузки ERP → DWH.</p></div>{% endif %}
 <h4>Последние ошибки</h4>{% for e in errors %}<p><a href="{% url 'erp:execution_detail' e.pk %}">#{{ e.pk }} {{ e.job }}</a> — {{ e.error_message }}</p>{% empty %}<p>Ошибок нет.</p>{% endfor %}

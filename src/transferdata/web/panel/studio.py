@@ -56,8 +56,8 @@ def overview(request):
                                 "height": round(100 * daily.get(today - timedelta(days=offset), 0) / peak)}
                                for offset in range(6, -1, -1)]
     if request.user.has_perm("panel.view_job"):
-        context["jobs"] = Job.objects.filter(is_deleted=False, archived=False).select_related("connection", "group").order_by("name")[:3]
-        context["job_count"] = Job.objects.filter(is_deleted=False, archived=False).count()
+        from .monitoring import transferdata_jobs
+        context["monitor_jobs"] = transferdata_jobs(request.user)
     return screen(request, "overview.html", **context)
 
 

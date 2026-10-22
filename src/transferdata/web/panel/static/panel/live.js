@@ -43,6 +43,7 @@
         });
       }
       window.scrollTo(scrollX, scrollY);
+      document.dispatchEvent(new Event("etl:live-updated"));
       status("● Автообновление · каждые 3 секунды");
     } catch (_) {
       status("Нет связи с порталом. Повторяем подключение…");
