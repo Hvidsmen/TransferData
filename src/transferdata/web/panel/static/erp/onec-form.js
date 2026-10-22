@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
     showField("id_sql_query", type.value === "SQL_QUERY");
     showField("id_one_c_object", type.value === "ONEC");
     showField("id_onec_adjust_dates", type.value === "ONEC");
+    showField("id_onec_resolve_references", type.value === "ONEC");
   }
   type.addEventListener("change", update);
   let controller;

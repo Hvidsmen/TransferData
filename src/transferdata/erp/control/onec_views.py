@@ -54,8 +54,9 @@ def catalogue(request):
 @login_required
 def detail(request, pk):
     obj = get_object_or_404(OneCObject.objects.select_related('connection'), pk=pk, is_active=True)
-    columns = mapping_from_metadata(obj.metadata)['columns'] if obj.metadata else []
-    return render(request, 'erp/control/onec_object.html', {'object': obj, 'columns': columns,
+    mapping = mapping_from_metadata(obj.metadata) if obj.metadata else {}
+    columns = mapping.get('columns', [])
+    return render(request, 'erp/control/onec_object.html', {'object': obj, 'columns': columns, 'reference_mapping': mapping,
         **scan_context(obj.connection)})
 
 

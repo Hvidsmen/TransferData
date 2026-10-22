@@ -69,3 +69,45 @@ def test_onec_date_rule_boundaries_without_changing_database():
         finally:
             cursor.close()
     assert actual == [values[0], values[1], values[2], datetime(1753, 1, 1), datetime(2026, 10, 22), None]
+
+
+@pytest.mark.skipif(os.environ.get('ETL_RUN_MSSQL_TESTS') != '1', reason='Real SQL Server not configured')
+def test_reference_select_preserves_rows_and_decodes_references_without_source_writes():
+    from transferdata.erp.control.onec import mapping_from_metadata, source_query
+    config = DatabaseConnection(name='Reference integration', server=os.environ['MSSQL_TEST_SERVER'],
+        port=int(os.environ.get('MSSQL_TEST_PORT', '1433')), database=os.environ['MSSQL_TEST_DATABASE'],
+        authentication_type='SQL', username=os.environ['MSSQL_TEST_USERNAME'],
+        credential_reference='MSSQL_TEST_PASSWORD', role='SOURCE')
+    data = {'reference_version': 1, 'table': '_Rows', 'properties': [
+        {'name': 'id', 'columns': [{'name': 'id', 'purpose': 'Value'}]},
+        {'name': 'Инвойс', 'is_reference': True, 'references': ['Документ.Инвойс'], 'columns': [
+            {'name': '_Ref', 'purpose': 'Value'}]},
+    ], 'reference_targets': [{'name': 'Документ.Инвойс', 'kind': 'Документ', 'type_code': 42,
+        'table': '_Documents', 'id': '_IDRRef', 'date': '_Date', 'number': '_Number'}]}
+    query = source_query(mapping_from_metadata(data), adjust_dates=True, resolve_references=True).replace('[dbo].', '')
+    ctes = """WITH [_Rows] AS (
+        SELECT * FROM (VALUES
+            (1, CONVERT(binary(16), 0x01)),
+            (2, CONVERT(binary(16), 0x02)),
+            (3, CONVERT(binary(16), 0x00)),
+            (4, CONVERT(binary(16), NULL))) AS v(id, _Ref)
+        ), [_Documents] AS (
+            SELECT CONVERT(binary(16), 0x01) AS _IDRRef,
+                   CONVERT(datetime2, '4026-10-23T12:30:00') AS _Date, N'INV-1' AS _Number
+        ) """
+    with connect(config) as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(ctes + query)
+            names = [column[0] for column in cursor.description]
+            rows = [dict(zip(names, row)) for row in cursor.fetchall()]
+            assert len(rows) == 4
+            by_id = {row['id']: row for row in rows}
+            assert by_id[1]['ИнвойсНомер'] == 'INV-1'
+            assert by_id[1]['ИнвойсДата'].year == 2026
+            assert 'INV-1' in by_id[1]['Инвойс']
+            assert by_id[1]['ИнвойсСсылка'] == bytes(15) + b'\x01'
+            assert all(by_id[n]['Инвойс'] is None for n in (2, 3, 4))
+            assert all(by_id[n]['ИнвойсДата'] is None for n in (2, 3, 4))
+        finally:
+            cursor.close()

@@ -97,8 +97,13 @@ def mapping_from_metadata(data):
     if not columns:
         raise ValidationError('У объекта нет поддерживаемых физических столбцов.')
     digest = hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-    return {'schema': 'dbo', 'table': table, 'columns': columns, 'metadata_hash': digest,
-            'name': data.get('name', ''), 'year_offset': data.get('year_offset', 0)}
+    mapping = {'schema': 'dbo', 'table': table, 'columns': columns, 'metadata_hash': digest,
+               'name': data.get('name', ''), 'year_offset': data.get('year_offset', 0)}
+    if data.get('reference_version') == 1:
+        from .onec_references import reference_mapping
+        mapping['references'], mapping['reference_warnings'] = reference_mapping(data, columns)
+        mapping['reference_version'] = 1
+    return mapping
 
 
 def validate_object(obj, connection):
@@ -109,19 +114,28 @@ def validate_object(obj, connection):
     return mapping_from_metadata(obj.metadata)
 
 
-def source_query(mapping, adjust_dates=False):
+def source_query(mapping, adjust_dates=False, resolve_references=False):
     fields = mapping.get('columns', [])
     if not fields:
         raise ValidationError('Отсутствует сохранённое соответствие столбцов 1С.')
+    joins, extra, raw_aliases = [], [], {}
+    if resolve_references:
+        if mapping.get('reference_version') != 1:
+            raise ValidationError('Для расшифровки ссылок повторно получите структуру объекта 1С и сохраните задание.')
+        from .onec_references import reference_select
+        joins, extra, raw_aliases = reference_select(mapping, adjust_dates)
     def expression(column):
-        value = identifier(column['source'])
+        value = ('[src].' if resolve_references else '') + identifier(column['source'])
         if column.get('row_version'):
             value = 'CONVERT(binary(8), ' + value + ')'
         elif adjust_dates and column.get('is_date'):
             value = f'CASE WHEN YEAR({value}) < 3753 THEN {value} ELSE DATEADD(year, -2000, {value}) END'
-        return value + ' AS ' + identifier(column['alias'])
-    columns = ',\n    '.join(expression(column) for column in fields)
-    return f"SELECT\n    {columns}\nFROM {identifier(mapping['schema'])}.{identifier(mapping['table'])}"
+        return value + ' AS ' + identifier(raw_aliases.get(column['source'], column['alias']))
+    columns = ',\n    '.join([expression(column) for column in fields] + extra)
+    table = f"{identifier(mapping['schema'])}.{identifier(mapping['table'])}"
+    if resolve_references:
+        table += ' AS [src]'
+    return f"SELECT\n    {columns}\nFROM {table}" + (('\n' + '\n'.join(joins)) if joins else '')
 
 
 @transaction.atomic

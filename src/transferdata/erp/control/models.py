@@ -78,6 +78,8 @@ class ETLJob(models.Model):
     one_c_mapping = models.JSONField(default=dict, blank=True, editable=False)
     onec_adjust_dates = models.BooleanField('Корректировать даты 1С', default=True,
         help_text='Для полей даты: год < 3753 — оставить, иначе вычесть 2000 лет. Применяется только к источнику «Объект 1С».')
+    onec_resolve_references = models.BooleanField('Добавлять представления ссылок 1С', default=True,
+        help_text='Сохраняет идентификаторы в полях «…Ссылка»; добавляет наименования, а для документов — дату и номер. Требует актуальной структуры со связями.')
     source_table = models.CharField(max_length=257, blank=True)
     sql_query = models.TextField(blank=True)
     target_schema = models.CharField(max_length=128, default='dbo')
@@ -111,6 +113,12 @@ class ETLJob(models.Model):
             mapping = validate_object(self.one_c_object, self.source_connection if self.source_connection_id else None)
             if self.one_c_mapping != mapping:
                 raise ValidationError({'one_c_object': 'Структура 1С обновилась. Откройте настройки и сохраните задание повторно.'})
+            if self.onec_resolve_references:
+                from .onec import source_query
+                try:
+                    source_query(mapping, adjust_dates=self.onec_adjust_dates, resolve_references=True)
+                except ValidationError as exc:
+                    raise ValidationError({'one_c_object': exc.messages}) from None
         elif self.source_type != 'TABLE':
             read_query(self.sql_query)
         if self.schedule_cron:

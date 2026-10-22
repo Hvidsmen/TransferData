@@ -5,7 +5,8 @@ from .validators import identifier, table_name, read_query
 def source_sql(job):
     if job.source_type == 'ONEC':
         from transferdata.erp.control.onec import source_query
-        return source_query(job.one_c_mapping, adjust_dates=job.onec_adjust_dates)
+        return source_query(job.one_c_mapping, adjust_dates=job.onec_adjust_dates,
+                            resolve_references=job.onec_resolve_references)
     return f'SELECT * FROM {table_name(job.source_table)}' if job.source_type == 'TABLE' else read_query(job.sql_query)
 
 def metadata(conn, query):

@@ -50,10 +50,39 @@ try
         if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Split('.').Length != 2
             || provider.GetMetadataEntry(request.Name) is null) throw new ArgumentException();
         var entity = provider.GetMetadataObject(request.Name) ?? throw new InvalidOperationException();
+        var targets = new Dictionary<string, object>();
+        string[] References(PropertyDefinition property)
+        {
+            if (!property.Type.IsEntity || property.Name == "Ссылка") return Array.Empty<string>();
+            var names = provider.ResolveReferences(property.References);
+            if (property.Type.TypeCode > 0)
+            {
+                var entry = provider.GetMetadataEntry(property.Type.TypeCode);
+                if (entry is not null) names = new List<string> { entry.FullName };
+            }
+            foreach (string name in names.Distinct())
+            {
+                if (targets.ContainsKey(name)) continue;
+                var entry = provider.GetMetadataEntry(name);
+                if (entry is null || entry.Type is not ("Справочник" or "Документ" or "Перечисление")) continue;
+                var target = provider.GetMetadataObject(name);
+                string? Field(string field) => target.GetPropertyByName(field)?.Columns.SingleOrDefault()?.Name;
+                string? id = Field("Ссылка");
+                if (id is null) continue;
+                var values = entry.Type == "Перечисление"
+                    ? provider.GetEnumerationValues(name).Select(value => new {
+                        name = value.Key, hex = Convert.ToHexString(UuidConverter.GetDbUuid(value.Value))
+                    }).ToArray() : null;
+                targets[name] = new { name, kind = entry.Type, type_code = entry.Code,
+                    table = target.DbName, id, description = Field("Наименование"), date = Field("Дата"),
+                    number = Field("Номер"), partitions = Partitions(target), values };
+            }
+            return names.Distinct().ToArray();
+        }
         var properties = entity.Properties.Select(property => new
         {
             name = property.Name, type = property.Type.ToString(),
-            references = provider.ResolveReferences(property.References),
+            references = References(property), is_reference = property.Type.IsEntity && property.Name != "Ссылка",
             columns = property.Columns.Select(column => new {
                 name = column.Name, purpose = column.Purpose.ToString(), type = column.Type.ToString(),
                 row_version = column.IsGenerated && column.Name == "_Version",
@@ -63,6 +92,7 @@ try
         Console.WriteLine(JsonSerializer.Serialize(new { protocol = 1, ok = true,
             configuration = config.Name, version = config.AppConfigVersion, year_offset = config.YearOffset,
             name = request.Name, table = entity.DbName, properties,
+            reference_version = 1, reference_targets = targets.Values.ToArray(), partitions = Partitions(entity),
             table_parts = entity.Entities.Select(part => new { name = part.Name, table = part.DbName }).ToArray() }));
     }
     return 0;
@@ -73,6 +103,12 @@ catch (Exception)
     Console.WriteLine("{\"protocol\":1,\"ok\":false,\"code\":\"metadata_read_failed\"}");
     return 1;
 }
+
+static object[] Partitions(EntityDefinition entity) => entity.Properties
+    .Where(property => property.Purpose.UseDataSeparation())
+    .SelectMany(property => property.Columns.Select(column => (object)new {
+        key = property.Uuid.ToString() + ":" + column.Purpose, source = column.Name
+    })).ToArray();
 
 sealed class Request
 {
