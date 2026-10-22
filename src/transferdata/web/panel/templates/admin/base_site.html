@@ -1,6 +1,7 @@
 {% extends "admin/base.html" %}
 {% load static %}
 {% block title %}{{ title }} · ETL Dev{% endblock %}
+{% block extrahead %}{{ block.super }}{% include "studio/favicon.html" %}{% endblock %}
 {% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'panel/theme.css' %}?v=20261022">{% endblock %}
 {% block branding %}<a class="td-brand" href="{% url 'admin:index' %}"><span class="td-brand-mark">⇄</span><span>ETL <span class="td-brand-accent">Dev</span><small>DATA OPERATIONS</small></span></a>{% endblock %}
 {% block nav-global %}{% if user.is_active and user.is_staff %}<nav class="td-topnav" aria-label="Основная навигация">
