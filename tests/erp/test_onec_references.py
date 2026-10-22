@@ -33,7 +33,7 @@ def references():
                 {'name': 'Справочник.Партнеры', 'kind': 'Справочник', 'type_code': 101,
                  'table': '_Reference101', 'id': '_IDRRef', 'description': '_Description', 'partitions': []},
                 {'name': 'Перечисление.ТипПлатежа', 'kind': 'Перечисление', 'type_code': 102,
-                 'table': '_Enum102', 'id': '_IDRRef', 'values': [
+                 'values': [
                      {'name': "Безналичный O'Brien", 'hex': '00112233445566778899AABBCCDDEEFF'}]},
             ]}
 
@@ -125,3 +125,20 @@ def test_reference_form_and_preview_use_the_same_frozen_mapping(job, references)
     saved = form.save()
     saved.runnable()
     assert '[ИнвойсСсылка]' in source_sql(saved) and '[ИнвойсДата]' in source_sql(saved)
+
+
+def test_enumeration_uses_configuration_values_without_a_table_or_reference_column(references):
+    enum = references['reference_targets'][2]
+    assert 'table' not in enum and 'id' not in enum
+    enum['name'] = 'Перечисление.Даичи_ТипыПлатежей'
+    references['reference_targets'] = [enum]
+    references['properties'] = [references['properties'][3]]
+    references['properties'][0]['references'] = [enum['name']]
+    mapping = mapping_from_metadata(references)
+    assert not mapping['reference_warnings']
+    query = source_query(mapping, resolve_references=True)
+    assert '[src].[_Kind] AS [ТипПлатежаСсылка]' in query
+    assert ' AS [ТипПлатежа]' in query
+    assert "THEN N'Безналичный O''Brien'" in query
+    assert '0x00112233445566778899AABBCCDDEEFF' in query
+    assert 'JOIN' not in query

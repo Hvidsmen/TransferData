@@ -65,17 +65,23 @@ try
                 if (targets.ContainsKey(name)) continue;
                 var entry = provider.GetMetadataEntry(name);
                 if (entry is null || entry.Type is not ("Справочник" or "Документ" or "Перечисление")) continue;
+                // Enumeration entities expose values, not physical reference columns.
+                // Resolve them directly from configuration; no table join is needed.
+                if (entry.Type == "Перечисление")
+                {
+                    targets[name] = new { name, kind = entry.Type, type_code = entry.Code,
+                        values = provider.GetEnumerationValues(name).Select(value => new {
+                            name = value.Key, hex = Convert.ToHexString(UuidConverter.GetDbUuid(value.Value))
+                        }).ToArray() };
+                    continue;
+                }
                 var target = provider.GetMetadataObject(name);
                 string? Field(string field) => target.GetPropertyByName(field)?.Columns.SingleOrDefault()?.Name;
                 string? id = Field("Ссылка");
                 if (id is null) continue;
-                var values = entry.Type == "Перечисление"
-                    ? provider.GetEnumerationValues(name).Select(value => new {
-                        name = value.Key, hex = Convert.ToHexString(UuidConverter.GetDbUuid(value.Value))
-                    }).ToArray() : null;
                 targets[name] = new { name, kind = entry.Type, type_code = entry.Code,
                     table = target.DbName, id, description = Field("Наименование"), date = Field("Дата"),
-                    number = Field("Номер"), partitions = Partitions(target), values };
+                    number = Field("Номер"), partitions = Partitions(target) };
             }
             return names.Distinct().ToArray();
         }

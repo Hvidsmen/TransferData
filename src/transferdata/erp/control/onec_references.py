@@ -22,7 +22,7 @@ def reference_mapping(data, columns):
         for field in ('table', 'id', 'description', 'date', 'number'):
             if target.get(field):
                 identifier(target[field])
-        if not target.get('table') or not target.get('id'):
+        if target['kind'] != 'Перечисление' and (not target.get('table') or not target.get('id')):
             raise ValidationError('Отсутствует таблица или идентификатор целевого объекта ссылки.')
         for value in target.get('values') or []:
             if not re.fullmatch('[0-9A-Fa-f]{32}', value['hex']) or not isinstance(value['name'], str):
