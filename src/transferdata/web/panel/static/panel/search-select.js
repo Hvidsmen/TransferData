@@ -18,9 +18,9 @@ document.addEventListener("DOMContentLoaded", () => {
     popup.hidden = true;
     const input = document.createElement("input");
     input.type = "search";
-    input.placeholder = "Поиск группы…";
+    input.placeholder = select.dataset.searchPlaceholder || "Поиск группы…";
     input.autocomplete = "off";
-    input.setAttribute("aria-label", "Поиск группы по названию");
+    input.setAttribute("aria-label", input.placeholder);
     input.setAttribute("role", "combobox");
     input.setAttribute("aria-autocomplete", "list");
     input.setAttribute("aria-expanded", "false");
@@ -76,7 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
         item.addEventListener("click", () => choose(option));
         list.append(item);
       });
-      footer.textContent = options.length ? "Найдено: " + options.length : "Группы не найдены. Попробуйте другое название.";
+      footer.textContent = options.length ? "Найдено: " + options.length : (select.dataset.emptyMessage || "Группы не найдены. Попробуйте другое название.");
       highlight(-1);
     }
     function open() {

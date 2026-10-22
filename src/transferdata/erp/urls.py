@@ -3,8 +3,13 @@ from django.contrib import admin
 from django.urls import path
 from django.contrib.auth.views import LoginView, LogoutView
 from transferdata.erp.control import views as v
+from transferdata.erp.control import onec_views
 from transferdata.web.panel import job_management
 urlpatterns = [
+    path('onec/', onec_views.catalogue, name='onec_catalogue'),
+    path('onec/options/', onec_views.options, name='onec_options'),
+    path('onec/objects/<int:pk>/', onec_views.detail, name='onec_detail'),
+    path('onec/connections/<int:pk>/refresh/', onec_views.refresh, name='onec_refresh'),
     path('', v.dashboard, name='dashboard'), path('connections/', v.connections, name='connections'),
     path('connections/new/', v.edit, {'kind': 'connection'}, name='connection_create'),
     path('connections/<int:pk>/edit/', v.edit, {'kind': 'connection'}, name='connection_edit'),

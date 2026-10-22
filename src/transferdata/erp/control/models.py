@@ -29,6 +29,38 @@ class DatabaseConnection(models.Model):
     def __str__(self):
         return self.name
 
+
+class OneCObject(models.Model):
+    connection = models.ForeignKey(DatabaseConnection, on_delete=models.CASCADE, related_name='onec_objects')
+    name = models.CharField('Объект 1С', max_length=257)
+    kind = models.CharField(max_length=64)
+    metadata = models.JSONField(default=dict, blank=True)
+    fingerprint = models.CharField(max_length=64, blank=True)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        constraints = [models.UniqueConstraint(fields=['connection', 'name'], name='onec_object_per_connection')]
+
+    def __str__(self):
+        return self.name
+
+
+class OneCScan(models.Model):
+    connection = models.ForeignKey(DatabaseConnection, on_delete=models.CASCADE, related_name='onec_scans')
+    object = models.ForeignKey(OneCObject, null=True, blank=True, on_delete=models.CASCADE)
+    status = models.CharField(max_length=12, default='PENDING')
+    message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(fields=['connection'], condition=Q(status__in=['PENDING', 'RUNNING']),
+                                               name='one_active_onec_scan_per_connection')]
+
+
 class ETLJob(models.Model):
     name = models.CharField(max_length=150)
     group = models.ForeignKey('panel.JobGroup', verbose_name='Группа заданий', null=True, blank=True,
@@ -38,7 +70,12 @@ class ETLJob(models.Model):
     description = models.TextField(blank=True)
     source_connection = models.ForeignKey(DatabaseConnection, on_delete=models.PROTECT, related_name='source_jobs')
     target_connection = models.ForeignKey(DatabaseConnection, on_delete=models.PROTECT, related_name='target_jobs')
-    source_type = models.CharField(max_length=12, choices=[('TABLE', 'Таблица'), ('SQL_QUERY', 'SQL-запрос')], default='TABLE')
+    source_type = models.CharField(max_length=12, choices=[('TABLE', 'Таблица'), ('SQL_QUERY', 'SQL-запрос'), ('ONEC', 'Объект 1С')], default='TABLE')
+    one_c_object = models.ForeignKey(OneCObject, verbose_name='Объект 1С', null=True, blank=True, on_delete=models.PROTECT,
+        help_text='Сначала прочитайте каталог и структуру объекта в разделе «Метаданные 1С».')
+    one_c_mapping = models.JSONField(default=dict, blank=True, editable=False)
+    onec_adjust_dates = models.BooleanField('Корректировать даты 1С', default=True,
+        help_text='Для полей даты: год < 3753 — оставить, иначе вычесть 2000 лет. Применяется только к источнику «Объект 1С».')
     source_table = models.CharField(max_length=257, blank=True)
     sql_query = models.TextField(blank=True)
     target_schema = models.CharField(max_length=128, default='dbo')
@@ -56,7 +93,15 @@ class ETLJob(models.Model):
     def clean(self):
         identifier(self.target_schema)
         identifier(self.target_table)
-        table_name(self.source_table) if self.source_type == 'TABLE' else read_query(self.sql_query)
+        if self.source_type == 'TABLE':
+            table_name(self.source_table)
+        elif self.source_type == 'ONEC':
+            from .onec import validate_object
+            mapping = validate_object(self.one_c_object, self.source_connection if self.source_connection_id else None)
+            if self.one_c_mapping != mapping:
+                raise ValidationError({'one_c_object': 'Структура 1С обновилась. Откройте настройки и сохраните задание повторно.'})
+        else:
+            read_query(self.sql_query)
         if self.schedule_cron:
             from transferdata.scheduling import simple_schedule
             try:

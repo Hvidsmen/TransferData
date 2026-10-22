@@ -78,3 +78,17 @@ body{font-size:14px}.brand small{white-space:nowrap;font-size:7px;letter-spacing
 .job-group>.job-grid { margin-top:18px; }
 .job-group>.surface { margin-top:16px; }
 @media(max-width:760px) { .job-groups { gap:22px; } .job-group>summary { gap:9px; padding:14px; } .job-group-title { font-size:14px; } .job-group-count { font-size:9px; padding:5px 7px; } }
+
+.onec-status { padding:22px 24px; margin-bottom:22px; border-left:3px solid #8d94f6; }
+.onec-status strong { display:block; margin-top:8px; color:#445a79; font-size:14px; }
+.onec-status p, .onec-note { color:#8293ae; font-size:12px; line-height:1.9; margin:10px 0 0; }
+.onec-actions { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:22px; color:#889ab5; font-size:12px; }
+.onec-info { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:24px; flex-wrap:wrap; }
+.onec-info h2 { margin:10px 0; font-size:20px; overflow-wrap:anywhere; }
+.onec-info p { font-size:12px; color:#8a9bb6; }
+.onec-note { margin:20px 0; padding:16px 20px; background:#eef2ff; border:1px solid #e3e8f9; border-radius:10px; }
+.erp-content p[hidden] { display:none !important; }
+
+.onec-title { overflow-wrap:anywhere; }
+
+.onec-query { max-width:100%; box-sizing:border-box; overflow:auto; padding:20px; background:#f8faff; border-radius:10px; font-size:12px; }

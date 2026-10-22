@@ -148,6 +148,9 @@ try {
     Invoke-Checked $python @("-m", "transferdata.web", "migrate", "--noinput")
     Invoke-Checked $python @("-m", "transferdata.web", "collectstatic", "--noinput")
     Invoke-Checked $python @("-m", "transferdata.web", "check")
+    if (Test-Path (Join-Path $state "onec-helper.json")) {
+        Invoke-Checked "powershell.exe" @("-NoProfile", "-NonInteractive", "-File", (Join-Path $projectRoot "windows\Install-1CMetadata.ps1"), "-UseExisting")
+    }
     Restore-TaskStates
     Remove-Item -LiteralPath $flag
     $flagCreated = $false

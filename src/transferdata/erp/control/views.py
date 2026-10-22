@@ -44,7 +44,12 @@ def connections(request):
 def edit(request, kind, pk=None):
     model, form_class = (ETLJob, JobForm) if kind == 'job' else (DatabaseConnection, ConnectionForm)
     instance = get_object_or_404(model.objects.filter(is_deleted=False) if kind == 'job' else model, pk=pk) if pk else None
-    form = form_class(request.POST or None, instance=instance)
+    initial = {}
+    if kind == 'job' and pk is None and request.GET.get('onec', '').isdecimal():
+        from .models import OneCObject
+        obj = get_object_or_404(OneCObject, pk=request.GET['onec'], is_active=True)
+        initial = {'source_type': 'ONEC', 'source_connection': obj.connection_id, 'one_c_object': obj.pk}
+    form = form_class(request.POST or None, instance=instance, initial=initial)
     if request.method == 'POST' and form.is_valid():
         obj = form.save(commit=False)
         if kind == 'job' and not obj.created_by_id:
@@ -89,7 +94,9 @@ def jobs(request):
 @login_required
 def job_detail(request, pk):
     job = get_object_or_404(ETLJob.objects.select_related('source_connection', 'target_connection'), pk=pk)
-    return render(request, 'erp/control/job.html', {'job': job, 'recent': job.executions.all()[:20]})
+    from transferdata.erp.engine.extractor import source_sql
+    return render(request, 'erp/control/job.html', {'job': job, 'recent': job.executions.all()[:20],
+        'generated_sql': source_sql(job) if job.source_type == 'ONEC' and job.one_c_mapping else ''})
 
 @administrator
 @require_POST

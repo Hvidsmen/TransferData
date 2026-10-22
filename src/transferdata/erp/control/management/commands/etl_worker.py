@@ -10,6 +10,8 @@ from transferdata.erp.control.models import WorkerLease, ETLExecution
 from django.db import close_old_connections, OperationalError
 from transferdata.erp.control.services import claim, execute, recover_interrupted, enqueue_due_jobs
 from transferdata.web.maintenance import worker_paused
+from transferdata.erp.control.onec import scan_next
+from transferdata.erp.control.models import OneCScan
 
 class Command(BaseCommand):
     help = 'Single local worker; OS lock is released automatically on process death.'
@@ -39,6 +41,8 @@ class Command(BaseCommand):
             except OSError:
                 raise CommandError('Другой worker уже запущен для этой служебной БД.')
             recover_interrupted()
+            OneCScan.objects.filter(status='RUNNING').update(status='FAILED', finished_at=timezone.now(),
+                message='Чтение метаданных прервано остановкой обработчика. Повторите чтение.')
             owner = str(uuid.uuid4())
             self.stdout.write('ERP_to_DWH worker started')
             last_schedule_check = 0
@@ -54,6 +58,9 @@ class Command(BaseCommand):
                     last_schedule_check = time.monotonic()
                 WorkerLease.objects.update_or_create(pk=1, defaults={'owner': owner, 'heartbeat': timezone.now()})
                 execution = claim()
+                scanned = False
+                if not execution:
+                    scanned = scan_next()
                 if execution:
                     stop = threading.Event()
                     def heartbeat():
@@ -78,5 +85,5 @@ class Command(BaseCommand):
                         thread.join(timeout=35)
                 if options['once']:
                     return
-                if not execution:
+                if not execution and not scanned:
                     time.sleep(max(0.1, options['poll']))

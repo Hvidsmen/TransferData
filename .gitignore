@@ -7,3 +7,6 @@ config.json
 .state/
 *.worker.lock
 .backups/
+.tools/
+**/bin/
+**/obj/
