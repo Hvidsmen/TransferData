@@ -9,5 +9,5 @@ def portal(request):
             "history" if route.startswith("execution") else "jobs" if route.startswith("job") else "overview")
         context.update(subsystem="erp", section=section,
                        title={"onec": "Метаданные 1С", "connections": "Подключения", "history": "История запусков",
-                              "jobs": "Задания ERP → DWH", "overview": "Обзор ERP_to_DWH"}[section])
+                              "jobs": "Задания", "overview": "Обзор"}[section])
     return context

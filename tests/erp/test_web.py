@@ -23,7 +23,7 @@ def test_all_pages_render(client, observer, job):
         response = client.get(path)
         assert response.status_code == 200, path
     response = client.get(reverse('erp:execution_detail', args=[execution.pk]), HTTP_HX_REQUEST='true')
-    assert b'hx-trigger="every 3s"' in response.content
+    assert b'id="progress" data-live' in response.content
     assert b'<html' not in response.content
 
 def test_launch_enqueues_only(client, administrator_user, job):
@@ -146,3 +146,23 @@ def test_grouped_display_counts_jobs_with_different_latest_statuses(client, obse
     assert len(sections) == 1
     assert sections[0]['count'] == 2
     assert {j.pk for j in sections[0]['jobs']} == {job.pk, other.pk}
+
+
+def test_erp_uses_shared_portal_design_and_metric_filters(client, administrator_user, job):
+    client.force_login(administrator_user)
+    ETLExecution.objects.create(job=job, status='SUCCESS', rows_loaded=123, duration_seconds=2)
+    ETLExecution.objects.create(job=job, status='PENDING')
+    response = client.get('/erp/')
+    text = response.content.decode()
+    assert 'SQL Перенос данных' in text and '1С Перенос данных' in text
+    assert 'bootstrap.min.css' not in text
+    assert 'class="metrics"' in text and 'class="overview-grid"' in text
+    assert response.context['stats']['successful'] == 1 and response.context['stats']['queued'] == 1
+    assert len(client.get('/erp/etl/executions/', {'status': 'success'}).context['page']) == 1
+    assert client.get('/erp/etl/executions/', {'status': 'queued'}).context['selected_status'] == 'PENDING'
+    form = client.get(reverse('erp:job_edit', args=[job.pk]))
+    assert b'data-field="source_type"' in form.content and b'class="surface editor-form"' in form.content
+    assert form.context['form'].fields['name'].label == 'Название задания'
+    listing = client.get('/erp/etl/jobs/').content.decode()
+    assert 'class="surface job-card"' in listing
+    assert 'В очереди' in listing

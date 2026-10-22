@@ -14,6 +14,17 @@ class ConnectionForm(StyledForm):
     class Meta:
         model = DatabaseConnection
         exclude = ['created_at', 'updated_at']
+        labels = {'name': 'Название подключения', 'description': 'Описание', 'server': 'Сервер SQL Server',
+                  'port': 'Порт', 'database': 'База данных', 'authentication_type': 'Аутентификация',
+                  'username': 'Пользователь SQL Server', 'credential_reference': 'Переменная с паролем',
+                  'driver': 'ODBC-драйвер', 'connection_timeout': 'Таймаут подключения, с',
+                  'query_timeout': 'Таймаут запроса, с', 'role': 'Роль подключения', 'is_active': 'Подключение активно'}
+        help_texts = {'credential_reference': 'Имя переменной окружения обработчика, а не пароль. Для Windows-аутентификации не требуется.'}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['role'].choices = [('SOURCE', 'Источник'), ('TARGET', 'Назначение'), ('BOTH', 'Источник и назначение')]
+        self.fields['authentication_type'].choices = [('WINDOWS', 'Windows — учётная запись обработчика'), ('SQL', 'Пользователь SQL Server')]
 
 class JobForm(StyledForm):
     class Media:
@@ -24,6 +35,10 @@ class JobForm(StyledForm):
         exclude = ['created_at', 'updated_at', 'created_by']
         widgets = {'schedule_time': forms.HiddenInput(), 'schedule_cron': ScheduleWidget(advanced=False),
                    'sql_query': forms.Textarea(attrs={'rows': 10, 'class': 'form-control font-monospace'})}
+        labels = {'name': 'Название задания', 'description': 'Описание', 'source_connection': 'Источник',
+                  'target_connection': 'Назначение', 'source_type': 'Тип источника', 'sql_query': 'SQL-запрос',
+                  'load_mode': 'Режим загрузки', 'batch_size': 'Строк в пакете',
+                  'command_timeout': 'Таймаут выполнения, с', 'is_active': 'Задание активно', 'archived': 'В архиве'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -36,6 +51,11 @@ class JobForm(StyledForm):
             'data-search-placeholder': 'Найти объект 1С…', 'data-empty-message': 'Нет загруженных объектов. Прочитайте структуру в разделе «Метаданные 1С».',
             'data-objects-url': reverse('erp:onec_options')})
         self.fields['group'].widget.attrs['data-searchable'] = 'true'
+        self.fields['group'].widget.attrs['aria-label'] = 'Группа заданий'
+        self.fields['group'].empty_label = 'Без группы'
+        self.fields['source_connection'].empty_label = 'Выберите источник'
+        self.fields['target_connection'].empty_label = 'Выберите назначение'
+        self.fields['load_mode'].choices = [('FULL', 'Полная загрузка'), ('INCREMENTAL', 'Инкрементальная — в разработке')]
         self.fields['target_schema'].label = 'Схема назначения'
         self.fields['target_table'].label = 'Таблица назначения'
         self.fields['source_table'].label = 'Таблица источника'

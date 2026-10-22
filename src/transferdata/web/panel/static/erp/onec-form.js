@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!type || !connection || !object) return;
   function showField(id, visible) {
     const input = document.getElementById(id);
-    const row = input && input.closest("p");
+    const row = input && (input.closest("[data-field]") || input.closest("p"));
     if (row) row.hidden = !visible;
   }
   function update() {

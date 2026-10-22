@@ -11,7 +11,7 @@ from .services import enqueue
 
 
 class PanelSite(admin.AdminSite):
-    site_header = "ETL Dev · TransferData"
+    site_header = "ETL Dev · SQL Перенос данных"
     site_title = "ETL Dev"
     index_title = "Обзор"
     index_template = "panel/index.html"

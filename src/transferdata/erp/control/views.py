@@ -6,7 +6,8 @@ from django.contrib.admin.views.decorators import staff_member_required
 from functools import partial
 login_required = partial(staff_member_required, login_url="admin:login")
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Avg, Sum, Q, OuterRef, Subquery
+from django.db.models import Sum, Q, OuterRef, Subquery, Count
+from django.db.models.functions import TruncDate
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -32,10 +33,18 @@ def administrator(view):
 def dashboard(request):
     from transferdata.web.panel.monitoring import erp_jobs
     executions = ETLExecution.objects.select_related('job')
-    day = executions.filter(created_at__gte=timezone.now() - timedelta(days=1))
-    stats = [('Всего заданий', ETLJob.objects.filter(is_deleted=False).count()), ('Активных', ETLJob.objects.filter(is_active=True, is_deleted=False, archived=False).count()), ('Успешных за сутки', day.filter(status='SUCCESS').count()), ('Ошибок за сутки', day.filter(status='FAILED').count()), ('Выполняется', executions.filter(status='RUNNING').count()), ('Загружено строк', executions.filter(status='SUCCESS').aggregate(v=Sum('rows_loaded'))['v'] or 0), ('Среднее время, с', round(executions.filter(status='SUCCESS').aggregate(v=Avg('duration_seconds'))['v'] or 0, 2))]
+    stats = executions.aggregate(successful=Count('pk', filter=Q(status='SUCCESS')),
+        running=Count('pk', filter=Q(status='RUNNING')), queued=Count('pk', filter=Q(status='PENDING')),
+        failed=Count('pk', filter=Q(status='FAILED')), rows=Sum('rows_loaded', filter=Q(status='SUCCESS')))
+    today = timezone.localdate()
+    daily = {row['day']: row['count'] for row in executions.filter(created_at__date__gte=today - timedelta(days=6))
+        .annotate(day=TruncDate('created_at')).values('day').annotate(count=Count('pk'))}
+    peak = max(daily.values(), default=1) or 1
+    activity = [{'day': today - timedelta(days=offset), 'count': daily.get(today - timedelta(days=offset), 0),
+                 'height': round(100 * daily.get(today - timedelta(days=offset), 0) / peak)} for offset in range(6, -1, -1)]
     chart = list(executions.filter(status='SUCCESS').order_by('-created_at').values('id', 'duration_seconds')[:30])[::-1]
-    return render(request, 'erp/control/dashboard.html', {'stats': stats, 'recent': executions[:10], 'errors': executions.filter(status='FAILED')[:5], 'chart': chart, 'monitor_jobs': erp_jobs()})
+    return render(request, 'erp/control/dashboard.html', {'stats': stats, 'recent': executions[:6],
+        'errors': executions.filter(status='FAILED')[:5], 'chart': chart, 'monitor_jobs': erp_jobs(), 'activity': activity})
 
 @login_required
 def connections(request):
@@ -60,7 +69,7 @@ def edit(request, kind, pk=None):
             obj.save()
             ETLAuditLog.objects.create(actor=request.user, object_type=model.__name__, object_id=obj.pk, action='update' if pk else 'create')
         return redirect('erp:job_detail', pk=obj.pk) if kind == 'job' else redirect('erp:connections')
-    return render(request, 'erp/control/form.html', {'form': form, 'title': 'ETL-задание' if kind == 'job' else 'Подключение'})
+    return render(request, 'erp/control/form.html', {'form': form, 'kind': kind, 'title': ('Настройка' if pk else 'Создание') + (' задания' if kind == 'job' else ' подключения')})
 
 @administrator
 @require_POST
@@ -76,7 +85,7 @@ def connection_test(request, pk):
 @login_required
 def jobs(request):
     state = request.GET.get('state', 'active')
-    items = ETLJob.objects.filter(is_deleted=False, archived=state == 'archived').select_related('source_connection', 'target_connection', 'group')
+    items = ETLJob.objects.filter(is_deleted=False, archived=state == 'archived').select_related('source_connection', 'target_connection', 'group', 'one_c_object')
     group = request.GET.get('group', '')
     if group == '__ungrouped__':
         items = items.filter(group__isnull=True)
@@ -124,8 +133,11 @@ def job_disable(request, pk):
 @login_required
 def executions(request):
     items = ETLExecution.objects.select_related('job', 'triggered_by')
-    if request.GET.get('status') in dict(ETLExecution.STATUSES):
-        items = items.filter(status=request.GET['status'])
+    status = request.GET.get('status', '').upper()
+    if status == 'QUEUED':
+        status = 'PENDING'
+    if status in dict(ETLExecution.STATUSES):
+        items = items.filter(status=status)
     if request.GET.get('job', '').isdigit():
         items = items.filter(job_id=request.GET['job'])
     if request.GET.get('trigger') in ('MANUAL', 'SCHEDULED'):
@@ -139,7 +151,7 @@ def executions(request):
     except ValueError:
         return HttpResponseBadRequest('Некорректная дата')
     from django.core.paginator import Paginator
-    return render(request, 'erp/control/executions.html', {'page': Paginator(items, 50).get_page(request.GET.get('page')), 'jobs': ETLJob.objects.all(), 'statuses': ETLExecution.STATUSES})
+    return render(request, 'erp/control/executions.html', {'page': Paginator(items, 50).get_page(request.GET.get('page')), 'jobs': ETLJob.objects.all(), 'statuses': ETLExecution.STATUSES, 'selected_status': status})
 
 @login_required
 def execution_detail(request, pk):

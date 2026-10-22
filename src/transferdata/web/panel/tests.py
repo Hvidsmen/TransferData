@@ -277,7 +277,7 @@ class PanelTests(TestCase):
         self.assertEqual(self.client.get("/").status_code, 302)
         self.client.force_login(self.user)
         response = self.client.get("/")
-        self.assertContains(response, "TransferData")
+        self.assertContains(response, "SQL Перенос данных")
         self.assertContains(response, "SQL Server")
 
     def test_custom_login_authenticates_existing_user(self):
@@ -289,7 +289,7 @@ class PanelTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get("/")
         self.assertContains(response, "ETL Dev")
-        self.assertContains(response, "ERP_to_DWH")
+        self.assertContains(response, "1С Перенос данных")
         self.assertContains(response, 'href="/erp/"')
         self.assertContains(response, 'href="/transferdata/"')
         response = self.client.get("/transferdata/")
