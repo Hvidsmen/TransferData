@@ -25,8 +25,9 @@ def required_env(name):
     return value
 
 
-def engines(config):
-    source, target = config["source"], config["target"]
+def source_engine(config):
+    """Build only the SQL Server engine; no destination credentials are needed."""
+    source = config["source"]
     if source.get("auth") == "windows":
         source_url = URL.create(
             "mssql+pyodbc", host=source["host"], database=source["database"],
@@ -45,6 +46,12 @@ def engines(config):
         query={"charset": "utf8"},
     ), pool_pre_ping=True, hide_parameters=True,
         connect_args={"login_timeout": 30, "timeout": 300, "encryption": "require"})
+    return src
+
+
+def engines(config):
+    src = source_engine(config)
+    target = config["target"]
     try:
         if target.get("dialect", "oracle") == "postgresql":
             target_url = URL.create(

@@ -25,6 +25,11 @@ if ($Mode -eq "erp-worker") {
 if (-not [IO.Path]::IsPathRooted($CredentialFile)) {
     $CredentialFile = Join-Path $projectRoot $CredentialFile
 }
+if (-not (Test-Path -LiteralPath $CredentialFile)) {
+    Write-Host "No PostgreSQL credential file. SQL Server procedure jobs can run without it."
+    & $python @pythonArgs etlworker
+    exit $LASTEXITCODE
+}
 $credential = Import-Clixml -LiteralPath $CredentialFile
 if ($credential -isnot [System.Management.Automation.PSCredential]) {
     throw "Credential file must contain a PSCredential for this Windows account."

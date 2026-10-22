@@ -68,13 +68,19 @@ def connection_test(request, pk):
 @login_required
 def jobs(request):
     items = ETLJob.objects.select_related('source_connection', 'target_connection')
+    group = request.GET.get('group', '')
+    if group == '__ungrouped__':
+        items = items.filter(group='')
+    elif group:
+        items = items.filter(group=group)
     if request.GET.get('q'):
         items = items.filter(name__icontains=request.GET['q'])
     if request.GET.get('mode') in ('FULL', 'INCREMENTAL'):
         items = items.filter(load_mode=request.GET['mode'])
     latest = ETLExecution.objects.filter(job=OuterRef('pk')).order_by('-created_at')
     items = items.annotate(last_status=Subquery(latest.values('status')[:1]), last_duration=Subquery(latest.values('duration_seconds')[:1]), last_rows=Subquery(latest.values('rows_loaded')[:1]), last_started=Subquery(latest.values('created_at')[:1]))
-    return render(request, 'erp/control/jobs.html', {'items': items.order_by('name')})
+    return render(request, 'erp/control/jobs.html', {'items': items.order_by('name'), 'group': group,
+        'groups': ETLJob.objects.exclude(group='').order_by('group').values_list('group', flat=True).distinct()})
 
 @login_required
 def job_detail(request, pk):

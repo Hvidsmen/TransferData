@@ -29,6 +29,8 @@ class DatabaseConnection(models.Model):
 
 class ETLJob(models.Model):
     name = models.CharField(max_length=150)
+    group = models.CharField('Группа заданий', max_length=100, blank=True,
+                             help_text='Выберите существующую группу или введите название новой. Пустое поле — без группы.')
     description = models.TextField(blank=True)
     source_connection = models.ForeignKey(DatabaseConnection, on_delete=models.PROTECT, related_name='source_jobs')
     target_connection = models.ForeignKey(DatabaseConnection, on_delete=models.PROTECT, related_name='target_jobs')

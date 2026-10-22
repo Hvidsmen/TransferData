@@ -78,10 +78,16 @@ def history(request):
 @permission_required("panel.view_job", raise_exception=True)
 def jobs(request):
     query = request.GET.get("q", "").strip()
+    group = request.GET.get("group", "")
     records = Job.objects.select_related("connection").order_by("name")
+    if group == "__ungrouped__":
+        records = records.filter(group="")
+    elif group:
+        records = records.filter(group=group)
     if query:
-        records = records.filter(Q(name__icontains=query) | Q(source_table__icontains=query) | Q(target_table__icontains=query))
-    return screen(request, "jobs.html", section="jobs", title="Задания переноса", query=query,
+        records = records.filter(Q(name__icontains=query) | Q(source_table__icontains=query) | Q(target_table__icontains=query) | Q(procedure_name__icontains=query))
+    return screen(request, "jobs.html", section="jobs", title="Задания", query=query, group=group,
+                  groups=Job.objects.exclude(group="").order_by("group").values_list("group", flat=True).distinct(),
                   page=Paginator(records, 12).get_page(request.GET.get("page")))
 
 
@@ -115,13 +121,13 @@ def edit(request, kind, pk=None):
             with transaction.atomic():
                 obj.save()
                 if kind == "job" and pk is None:
-                    enqueue(obj, "prepare")
+                    enqueue(obj, "check" if obj.job_type == "procedure" else "prepare")
         except ValidationError as exc:
             form.add_error(None, exc)
             return screen(request, "edit.html", section=section, title="Создание задания",
                           form=form, kind=kind)
         if kind == "job" and pk is None:
-            messages.success(request, "Задание создано. Проверка подключений, получение структуры и создание таблицы поставлены в очередь. Результат — в истории запусков.")
+            messages.success(request, "Задание процедуры создано. Проверка подключения поставлена в очередь; сама процедура запускается вручную или по расписанию." if obj.job_type == "procedure" else "Задание создано. Проверка подключений, получение структуры и создание таблицы поставлены в очередь. Результат — в истории запусков.")
             return redirect("td_history")
         messages.success(request, "Изменения сохранены.")
         return redirect("td_" + section)
@@ -133,6 +139,14 @@ def edit(request, kind, pk=None):
 @permission_required("panel.change_job", raise_exception=True)
 def action(request, pk, operation):
     job = get_object_or_404(Job.objects.select_related("connection"), pk=pk)
+    if job.job_type == "procedure" and operation == "run":
+        if request.method == "GET":
+            return redirect("td_action", pk=pk, operation="execute")
+        from django.http import Http404
+        raise Http404
+    if (job.job_type == "procedure" and operation not in {"check", "execute"}) or (job.job_type != "procedure" and operation == "execute"):
+        from django.http import Http404
+        raise Http404
     if operation not in dict(Run.ACTIONS):
         from django.http import Http404
         raise Http404

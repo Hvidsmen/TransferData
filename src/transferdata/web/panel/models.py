@@ -1,4 +1,6 @@
 from zoneinfo import ZoneInfo
+import math
+import re
 from apscheduler.triggers.cron import CronTrigger
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -10,9 +12,10 @@ class Connection(models.Model):
     source_database = models.CharField("База SQL Server", max_length=255, default="DataWH")
     source_driver = models.CharField("ODBC-драйвер", max_length=150, default="ODBC Driver 17 for SQL Server")
     source_trust = models.BooleanField("Доверять сертификату SQL Server без проверки", default=False)
-    target_host = models.CharField("Сервер PostgreSQL", max_length=255)
+    target_host = models.CharField("Сервер PostgreSQL", max_length=255, blank=True,
+                                  help_text="Для заданий только с процедурой PostgreSQL не требуется.")
     target_port = models.PositiveIntegerField("Порт PostgreSQL", default=5432)
-    target_database = models.CharField("База PostgreSQL", max_length=255)
+    target_database = models.CharField("База PostgreSQL", max_length=255, blank=True)
     username_env = models.CharField("Переменная с логином PostgreSQL", max_length=100, default="TARGET_USER")
     password_env = models.CharField("Переменная с паролем PostgreSQL", max_length=100, default="TARGET_PASSWORD",
                                   help_text="Значение хранится вне панели: в окружении worker или Windows DPAPI.")
@@ -39,11 +42,21 @@ class Connection(models.Model):
 
 class Job(models.Model):
     name = models.CharField("Название задания", max_length=150, unique=True)
+    group = models.CharField("Группа заданий", max_length=100, blank=True,
+                             help_text="Выберите существующую группу или введите название новой. Пустое поле — без группы.")
+    job_type = models.CharField("Тип задания", max_length=20, default="transfer", choices=[
+        ("transfer", "Перенос SQL Server → PostgreSQL"), ("procedure", "Процедура MS SQL Server")])
     connection = models.ForeignKey(Connection, on_delete=models.PROTECT, verbose_name="Подключение")
+    procedure_schema = models.CharField("Схема процедуры", max_length=128, default="dbo", blank=True)
+    procedure_name = models.CharField("Имя процедуры", max_length=128, blank=True,
+                                      help_text="Только имя, без схемы и квадратных скобок.")
+    procedure_parameters = models.JSONField("Параметры процедуры", default=dict, blank=True,
+        help_text='JSON с именами без @, например {"DateFrom": "2026-10-01", "FullLoad": true}. {} — без параметров. Только входные параметры; пароли здесь не храните.')
+    procedure_timeout = models.PositiveIntegerField("Таймаут процедуры, секунд", default=3600)
     source_schema = models.CharField("Схема SQL Server", max_length=128, default="erp")
-    source_table = models.CharField("Таблица SQL Server", max_length=128)
+    source_table = models.CharField("Таблица SQL Server", max_length=128, blank=True)
     target_schema = models.CharField("Схема PostgreSQL", max_length=63, default="public")
-    target_table = models.CharField("Таблица PostgreSQL", max_length=63)
+    target_table = models.CharField("Таблица PostgreSQL", max_length=63, blank=True)
     cron = models.CharField("Расписание cron", max_length=100, default="0 2 * * *",
                            help_text="Минута час день месяц день-недели. Каждый день в 02:00: 0 2 * * *")
     timezone = models.CharField("Часовой пояс", max_length=100, default="Europe/Moscow")
@@ -63,6 +76,26 @@ class Job(models.Model):
 
     def clean(self):
         errors = {}
+        if self.job_type == "procedure":
+            for field in ("procedure_schema", "procedure_name"):
+                value = getattr(self, field)
+                if not value.strip() or any(ord(c) < 32 for c in value):
+                    errors[field] = "Укажите непустое имя без управляющих символов."
+            if self.procedure_timeout < 1:
+                errors["procedure_timeout"] = "Таймаут должен быть больше нуля."
+            params = self.procedure_parameters
+            if not isinstance(params, dict) or not all(
+                isinstance(k, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,126}", k)
+                and (v is None or type(v) in (str, int, bool) or (type(v) is float and math.isfinite(v)))
+                for k, v in params.items()
+            ):
+                errors["procedure_parameters"] = "Нужен JSON-объект: имена параметров без @, значения — строка, число, true/false или null."
+        else:
+            for field in ("source_schema", "source_table", "target_schema", "target_table"):
+                if not getattr(self, field).strip():
+                    errors[field] = "Обязательное поле для переноса таблицы."
+            if self.connection_id and (not self.connection.target_host or not self.connection.target_database):
+                errors["connection"] = "Для переноса укажите сервер и базу PostgreSQL в подключении."
         try:
             CronTrigger.from_crontab(self.cron, timezone=ZoneInfo(self.timezone))
         except (ValueError, KeyError):
@@ -88,11 +121,18 @@ class Job(models.Model):
         config = self.connection.config()
         config.update({"timezone": self.timezone, "jobs": [{
             "name": self.name, "source_schema": self.source_schema, "source_table": self.source_table,
+            "job_type": self.job_type, "procedure_schema": self.procedure_schema,
+            "procedure_name": self.procedure_name, "procedure_parameters": self.procedure_parameters,
+            "procedure_timeout": self.procedure_timeout,
             "target_schema": self.target_schema, "target_table": self.target_table,
             "cron": self.cron, "batch_size": self.batch_size, "allow_empty": self.allow_empty,
             **({"columns": self.columns} if self.columns else {}),
         }]})
         return config
+
+    @property
+    def execution_action(self):
+        return "execute" if self.job_type == "procedure" else "run"
 
     @property
     def schedule_label(self):
@@ -102,7 +142,7 @@ class Job(models.Model):
 
 class Run(models.Model):
     ACTIONS = [("check", "Проверить подключения"), ("inspect", "Получить структуру источника"),
-               ("prepare", "Создать таблицу"), ("run", "Полная загрузка")]
+               ("prepare", "Создать таблицу"), ("run", "Полная загрузка"), ("execute", "Выполнить процедуру")]
     STATUS = [("queued", "В очереди"), ("running", "Выполняется"),
               ("success", "Успешно"), ("failed", "Ошибка"), ("interrupted", "Прерван, проверить результат")]
     job = models.ForeignKey(Job, on_delete=models.PROTECT, verbose_name="Задание")

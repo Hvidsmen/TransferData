@@ -1,10 +1,32 @@
 """Conservative SQL Server to PostgreSQL replica table creation."""
+import hashlib
 from sqlalchemy import (
     BigInteger, Boolean, Column, Date, DateTime, Float, Integer, LargeBinary,
     MetaData, Numeric, SmallInteger, String, Table, Text, Time, Uuid, inspect,
 )
 from sqlalchemy.dialects import mssql
 from sqlalchemy.schema import CreateTable
+
+
+def default_column_mapping(names):
+    """Preserve names that fit; shorten long UTF-8 names deterministically."""
+    names = list(names)
+    used = {name for name in names if len(name.encode("utf-8")) <= 63}
+    mapping = {}
+    for name in names:
+        target = name
+        if len(name.encode("utf-8")) > 63:
+            prefix = name.encode("utf-8")[:54].decode("utf-8", errors="ignore")
+            index = 0
+            while True:
+                suffix = hashlib.sha256(f"{name}:{index}".encode("utf-8")).hexdigest()[:8]
+                target = prefix + "_" + suffix
+                if target not in used:
+                    break
+                index += 1
+        mapping[name] = target
+        used.add(target)
+    return mapping
 
 
 def postgres_type(source_type):

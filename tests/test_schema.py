@@ -4,7 +4,20 @@ from sqlalchemy.dialects import mssql, postgresql
 from sqlalchemy.types import NullType
 
 from transferdata.etl import transfer
-from transferdata.schema import postgres_type, prepare_target
+from transferdata.schema import postgres_type, prepare_target, default_column_mapping
+
+
+def test_default_column_mapping_preserves_short_names_and_avoids_collisions():
+    long_name = "БИТ_ОченьДлинноеИмяСтолбца" * 4
+    generated = default_column_mapping([long_name])[long_name]
+    names = ["Код", "a" * 63, long_name, long_name + "Другой", generated]
+    mapping = default_column_mapping(names)
+    assert mapping["Код"] == "Код"
+    assert mapping["a" * 63] == "a" * 63
+    assert mapping[generated] == generated
+    assert len(set(mapping.values())) == len(names)
+    assert all(len(name.encode("utf-8")) <= 63 for name in mapping.values())
+    assert mapping == default_column_mapping(names)
 
 
 @pytest.mark.parametrize("source_type, expected", [

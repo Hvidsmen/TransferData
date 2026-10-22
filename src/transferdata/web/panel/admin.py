@@ -50,13 +50,14 @@ class ConnectionAdmin(admin.ModelAdmin):
 class JobAdmin(admin.ModelAdmin):
     change_list_template = "panel/change_list.html"
     form = JobForm
-    list_display = ["name", "source_table", "target_table", "enabled", "cron", "timezone", "next_run_at"]
-    list_filter = ["enabled", "connection"]
-    search_fields = ["name", "source_table", "target_table"]
+    list_display = ["name", "job_type", "group", "source_table", "target_table", "enabled", "cron", "timezone", "next_run_at"]
+    list_filter = ["enabled", "connection", "job_type", "group"]
+    search_fields = ["name", "source_table", "target_table", "procedure_name", "group"]
     readonly_fields = ["next_run_at"]
     actions = ["check_connections", "inspect_source", "prepare_table", "run_transfer"]
     fieldsets = [
-        (None, {"fields": ["name", "connection"]}),
+        (None, {"fields": ["name", "group", "job_type", "connection"]}),
+        ("Процедура MS SQL Server", {"fields": ["procedure_schema", "procedure_name", "procedure_parameters", "procedure_timeout"]}),
         ("Источник и назначение", {"fields": ["source_schema", "source_table", "target_schema", "target_table"]}),
         ("Расписание", {"fields": ["enabled", "cron", "timezone", "next_run_at"]}),
         ("Загрузка", {"fields": ["batch_size", "allow_empty", "columns"],

@@ -55,3 +55,15 @@ def test_history_filters(client, observer, job):
     response = client.get('/erp/etl/executions/', {'status': 'FAILED', 'job': job.pk, 'trigger': 'MANUAL'})
     assert len(response.context['page']) == 1
     assert client.get('/erp/etl/executions/', {'from': 'bad'}).status_code == 400
+
+
+def test_job_groups_filter_and_form_support(client, administrator_user, job):
+    job.group = 'Справочники'
+    job.save()
+    client.force_login(administrator_user)
+    response = client.get(reverse('erp:jobs'), {'group': 'Справочники'})
+    assert list(response.context['items']) == [job]
+    assert not list(client.get(reverse('erp:jobs'), {'group': '__ungrouped__'}).context['items'])
+    response = client.get(reverse('erp:job_edit', args=[job.pk]))
+    assert 'job-group-options' in response.content.decode()
+    assert response.context['form']['group'].value() == 'Справочники'

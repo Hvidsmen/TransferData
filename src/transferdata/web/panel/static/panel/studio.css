@@ -13,3 +13,11 @@ body{font-size:14px}.brand small{white-space:nowrap;font-size:7px;letter-spacing
 .erp-content .card{border:1px solid #e8edf5;border-radius:11px;box-shadow:var(--shadow)}.erp-content h2{font-size:27px;margin-bottom:24px}.erp-content h4{font-size:17px;margin:24px 0 16px}.erp-content .btn-primary{background:#5669ee;border-color:#5669ee}.erp-content .form-control,.erp-content .form-select{font-size:13px;border-color:#dfe6f1;border-radius:7px}.erp-content label{display:block;font-size:12px;color:#6c7d95;margin:12px 0 6px}.erp-content input[type=checkbox]{accent-color:#5669ee}.erp-content .status-SUCCESS{color:#27976c}.erp-content .status-FAILED{color:#c77583}.erp-content .status-RUNNING{color:#6b7fe3}.erp-content pre{white-space:pre-wrap;overflow-wrap:anywhere}.erp-content .fs-3{color:#304364}.erp-content table{font-size:12px}.erp-content .table-responsive{border-radius:9px;border:1px solid #eaf0f6}
 
 #live-status { color: var(--muted, #72809b); font-size: 12px; margin: 0 0 16px; }
+
+.editor-field[hidden], .form-row[hidden] { display: none !important; }
+.standalone-search select { max-width: 280px; }
+
+.preparation-steps { list-style:none; padding:0; font-size:12px; color:#60738e; }
+.preparation-steps li { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid #f0f3f8; }
+.preparation-steps strong { white-space:nowrap; }
+.standalone-search { flex-wrap:wrap; }

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 import json
 from pathlib import Path
 import tempfile
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -16,6 +16,118 @@ from .services import enqueue, execute_next, schedule_due
 
 
 class PanelTests(TestCase):
+    def test_failed_connection_stops_preparation_before_structure_and_ddl(self):
+        run, _ = enqueue(self.job, "prepare")
+        source = MagicMock()
+        source.connect.side_effect = RuntimeError("must-not-be-stored")
+        with patch("transferdata.web.panel.services.engines", return_value=(source, MagicMock())), \
+             patch("transferdata.web.panel.services.prepare_target") as create, \
+             patch("transferdata.web.panel.services.inspect") as structure:
+            execute_next()
+            create.assert_not_called()
+            structure.assert_not_called()
+        run.refresh_from_db()
+        self.job.refresh_from_db()
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(run.details["steps"], [{"label": "1. Проверка подключений", "status": "failed"}])
+        self.assertEqual(self.job.columns, {})
+        self.assertNotIn("must-not-be-stored", run.message)
+
+    def test_auto_preparation_saves_columns_before_creating_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            src = create_engine(f"sqlite:///{directory}/src.db")
+            dst = create_engine(f"sqlite:///{directory}/dst.db")
+            long_name = "ОченьДлинноеИмяСтолбца" * 4
+            table = Table("source", MetaData(), Column("Код", Integer), Column(long_name, String(20)))
+            table.create(src)
+            self.job.source_schema = "main"
+            self.job.target_schema = "main"
+            self.job.source_table = "source"
+            self.job.save()
+            run, _ = enqueue(self.job, "prepare")
+            with patch("transferdata.web.panel.services.engines", return_value=(src, dst)):
+                execute_next()
+            run.refresh_from_db()
+            self.job.refresh_from_db()
+            self.assertEqual(run.status, "success", run.message)
+            self.assertEqual(self.job.columns["Код"], "Код")
+            self.assertLessEqual(len(self.job.columns[long_name].encode("utf-8")), 63)
+            self.assertEqual(run.snapshot["jobs"][0]["columns"], self.job.columns)
+            self.assertEqual(run.details["mapping"], self.job.columns)
+            self.assertEqual(len(run.details["steps"]), 4)
+            self.assertTrue(all(s["status"] == "success" for s in run.details["steps"]))
+            replica = Table("contractors", MetaData(), autoload_with=dst)
+            self.assertEqual(set(replica.c.keys()), set(self.job.columns.values()))
+            with dst.connect() as connection:
+                self.assertEqual(connection.scalar(text("SELECT count(*) FROM contractors")), 0)
+            src.dispose()
+            dst.dispose()
+
+    def test_create_procedure_checks_only_source_and_groups_filter(self):
+        self.client.force_login(self.user)
+        self.connection.target_host = ""
+        self.connection.target_database = ""
+        self.connection.save()
+        data = {"name": "Refresh models", "job_type": "procedure", "group": "Регламентные",
+                "connection": self.connection.pk, "procedure_schema": "dbo", "procedure_name": "RefreshModels",
+                "procedure_parameters": '{"FullLoad": true}', "procedure_timeout": 120,
+                "cron": "0 3 * * *", "timezone": "Europe/Moscow"}
+        response = self.client.post("/jobs/new/", data)
+        self.assertRedirects(response, "/runs/")
+        job = Job.objects.get(name="Refresh models")
+        self.assertEqual(job.job_type, "procedure")
+        self.assertEqual(Run.objects.get(job=job).action, "check")
+        with patch("transferdata.web.panel.services.source_engine") as source, \
+             patch("transferdata.web.panel.services.engines") as target:
+            source.return_value.connect.return_value.__enter__.return_value.scalar.return_value = 1
+            execute_next()
+            target.assert_not_called()
+        self.assertEqual(Run.objects.get(job=job).status, "success")
+        with self.assertRaises(ValidationError):
+            enqueue(job, "prepare")
+        run, _ = enqueue(job, "run")
+        self.assertEqual(run.action, "execute")
+        with patch("transferdata.web.panel.services.source_engine") as source, \
+             patch("transferdata.web.panel.services.engines") as target, \
+             patch("transferdata.web.panel.services.execute_procedure", return_value=0) as execute:
+            self.assertTrue(execute_next())
+            target.assert_not_called()
+            execute.assert_called_once_with(source.return_value, run.snapshot["jobs"][0])
+        run.refresh_from_db()
+        self.assertEqual(run.status, "success")
+        self.assertEqual(run.details, {"return_code": 0})
+        self.assertContains(self.client.get("/jobs/", {"group": "Регламентные"}), "dbo.RefreshModels")
+        self.assertNotContains(self.client.get("/jobs/", {"group": "__ungrouped__"}), "dbo.RefreshModels")
+        self.assertEqual(self.client.get(f"/jobs/{job.pk}/prepare/").status_code, 404)
+        self.assertContains(self.client.get(f"/runs/{run.pk}/"), "dbo.RefreshModels")
+        self.assertRedirects(self.client.get(f"/jobs/{job.pk}/run/"), f"/jobs/{job.pk}/execute/")
+        self.assertContains(self.client.get(f"/jobs/{job.pk}/execute/"), "Выполнить процедуру")
+        self.assertEqual(self.client.post(f"/jobs/{job.pk}/run/").status_code, 404)
+
+    def test_procedure_schedule_queues_execution_and_preserves_snapshot(self):
+        job = Job.objects.create(name="proc", job_type="procedure", connection=self.connection,
+                                 procedure_name="Refresh", procedure_parameters={"Flag": True},
+                                 enabled=True, next_run_at=timezone.now() - timedelta(minutes=1))
+        schedule_due()
+        run = Run.objects.get(job=job)
+        self.assertEqual(run.action, "execute")
+        job.procedure_name = "Changed"
+        job.save()
+        self.assertEqual(run.snapshot["jobs"][0]["procedure_name"], "Refresh")
+        schedule_due()
+        self.assertEqual(Run.objects.filter(job=job).count(), 1)
+
+    def test_procedure_requires_name_and_input_parameters(self):
+        job = Job(name="proc", job_type="procedure", connection=self.connection)
+        with self.assertRaises(ValidationError):
+            job.full_clean()
+        job.procedure_name = "Refresh"
+        job.procedure_parameters = {"x": {"unsupported": 1}}
+        with self.assertRaises(ValidationError):
+            job.full_clean()
+        with self.assertRaises(ValidationError):
+            enqueue(self.job, "execute")
+
     def test_new_job_queues_preparation_but_edit_does_not(self):
         self.client.force_login(self.user)
         data = {"name": "new route", "connection": self.connection.pk,

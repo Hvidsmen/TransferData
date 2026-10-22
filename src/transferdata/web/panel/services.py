@@ -6,9 +6,10 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from sqlalchemy import inspect, text
 
-from transferdata.cli import engines
+from transferdata.cli import engines, source_engine
+from transferdata.procedures import execute_procedure, ProcedureReturnCodeError
 from transferdata.etl import transfer
-from transferdata.schema import prepare_target
+from transferdata.schema import prepare_target, default_column_mapping
 from .models import Job, Run
 from transferdata.web.maintenance import is_paused
 from django.core.exceptions import ValidationError
@@ -20,6 +21,13 @@ def enqueue(job, action):
     if action not in dict(Run.ACTIONS):
         raise ValueError("Unknown action")
     job.full_clean()
+    if job.job_type == "procedure":
+        if action == "run":
+            action = "execute"
+        if action not in {"check", "execute"}:
+            raise ValidationError("Для процедуры доступны проверка подключения и выполнение.")
+    elif action == "execute":
+        raise ValidationError("Это задание переноса таблицы, а не процедуры.")
     try:
         with transaction.atomic():
             return Run.objects.create(job=job, action=action, snapshot=job.config()), True
@@ -52,42 +60,90 @@ def execute_next():
     started = monotonic()
     source = target = None
     stage = "Подключение к базам"
+
+    def preparation_step(label):
+        if run.action != "prepare":
+            return
+        steps = run.details.setdefault("steps", [])
+        if steps:
+            steps[-1]["status"] = "success"
+        steps.append({"label": label, "status": "running"})
+        run.message = label
+        run.save(update_fields=["details", "message"])
+
     try:
         config = run.snapshot
         job = config["jobs"][0]
-        source, target = engines(config)
+        procedure = job.get("job_type") == "procedure"
+        preparation_step("1. Проверка подключений")
+        if procedure:
+            source = source_engine(config)
+        else:
+            source, target = engines(config)
+        if run.action == "execute":
+            if not procedure:
+                raise ValueError("Not a procedure job")
+            stage = "Выполнение процедуры"
+            run.details = {"return_code": execute_procedure(source, job)}
+            run.message = "Процедура выполнена. Код возврата: 0."
         if run.action in {"check", "prepare"}:
-            for engine in (source, target):
+            for engine in (source,) if procedure else (source, target):
                 with engine.connect() as connection:
                     if connection.scalar(text("SELECT 1")) != 1:
                         raise RuntimeError("Unexpected database response")
-            run.message = "Оба подключения проверены."
+            run.message = "Подключение SQL Server проверено." if procedure else "Оба подключения проверены."
         if run.action in {"inspect", "prepare"}:
             stage = "Получение структуры источника"
+            preparation_step("2. Получение структуры источника")
             with source.connect() as connection:
                 inspector = inspect(connection)
                 columns = inspector.get_columns(job["source_table"], schema=job["source_schema"])
-                run.details = {"tables": inspector.get_table_names(schema=job["source_schema"]),
+                run.details.update({"tables": inspector.get_table_names(schema=job["source_schema"]),
                                "columns": [{"name": c["name"], "type": str(c["type"]),
-                                            "bytes": len(c["name"].encode("utf-8"))} for c in columns]}
+                                            "bytes": len(c["name"].encode("utf-8"))} for c in columns]})
             run.message = "Структура получена. Имена длиннее 63 UTF-8 байт нужно переименовать в маппинге."
         if run.action == "prepare":
+            stage = "Сохранение столбцов задания"
+            preparation_step("3. Заполнение столбцов задания")
+            if not job.get("columns"):
+                mapping = default_column_mapping(c["name"] for c in run.details["columns"])
+                if not mapping:
+                    raise ValueError("Source table has no columns")
+                with transaction.atomic():
+                    current = Job.objects.select_for_update().select_related("connection").get(pk=run.job_id)
+                    latest = current.config()
+                    if (latest["source"] != config["source"] or latest["target"] != config["target"] or
+                        any(latest["jobs"][0].get(key) != value for key, value in job.items())):
+                        raise ValidationError("Job changed during preparation")
+                    current.columns = mapping
+                    current.save(update_fields=["columns"])
+                    job["columns"] = mapping
+                    run.save(update_fields=["snapshot"])
+            run.details["mapping"] = job["columns"]
             stage = "Создание таблицы назначения"
+            preparation_step("4. Создание таблицы назначения")
             created = prepare_target(source, target, job)
-            run.message = "Подключения проверены, структура получена. " + ("Таблица создана." if created else "Таблица уже существует, изменений нет.")
+            run.message = "Подключения проверены, структура получена, столбцы задания заполнены. " + ("Таблица создана." if created else "Таблица уже существует, изменений нет.")
         elif run.action == "run":
             stage = "Перенос данных"
             result = transfer(source, target, job)
             run.rows = result.rows
             run.message = "Полная загрузка завершена."
-        elif run.action not in {"check", "inspect"}:
+        elif run.action not in {"check", "inspect", "execute"}:
             raise ValueError("Unknown action")
         run.status = "success"
+        if run.details.get("steps"):
+            run.details["steps"][-1]["status"] = "success"
     except Exception as exc:
         # Driver exception text can contain row values, SQL and credentials.
         # Never persist it or print an exception traceback into the panel.
         run.status = "failed"
+        if run.details.get("steps"):
+            run.details["steps"][-1]["status"] = "failed"
         run.message = f"{stage}: ошибка {type(exc).__name__}. Проверьте подключения, права, имена и типы столбцов."
+        if isinstance(exc, ProcedureReturnCodeError):
+            run.details["return_code"] = exc.code
+            run.message = f"Процедура не завершилась успешно. Код возврата: {exc.code if exc.code is not None else 'не получен'}."
     finally:
         for engine in (source, target):
             if engine is not None:
