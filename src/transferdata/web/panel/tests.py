@@ -29,6 +29,11 @@ class PanelTests(TestCase):
         self.assertContains(response, "TransferData")
         self.assertContains(response, "SQL Server")
 
+    def test_custom_login_authenticates_existing_user(self):
+        self.assertContains(self.client.get("/login/"), "С возвращением")
+        self.assertRedirects(self.client.post("/login/", {"username": "operator",
+            "password": "test-password-only", "next": "/"}), "/")
+
     def test_nonstaff_cannot_access_panel(self):
         self.user.is_staff = False
         self.user.save()
@@ -38,12 +43,46 @@ class PanelTests(TestCase):
     def test_job_forms_and_readonly_history_render(self):
         self.client.force_login(self.user)
         run, _ = enqueue(self.job, "check")
-        for url in ["/panel/connection/", f"/panel/connection/{self.connection.pk}/change/",
-                    "/panel/job/", f"/panel/job/{self.job.pk}/change/", "/panel/run/",
+        for url in ["/connections/", f"/panel/connection/{self.connection.pk}/change/",
+                    "/jobs/", f"/panel/job/{self.job.pk}/change/", "/runs/",
                     f"/panel/run/{run.pk}/change/"]:
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 200)
         self.assertEqual(self.client.get("/panel/run/add/").status_code, 403)
+
+    def test_studio_forms_and_history_require_permissions(self):
+        self.client.force_login(self.user)
+        for url in ["/jobs/new/", f"/jobs/{self.job.pk}/edit/", "/connections/new/",
+                    f"/connections/{self.connection.pk}/edit/"]:
+            self.assertEqual(self.client.get(url).status_code, 200)
+        self.user.is_superuser = False
+        self.user.save()
+        self.assertEqual(self.client.get("/runs/").status_code, 403)
+        self.assertEqual(self.client.get(f"/jobs/{self.job.pk}/edit/").status_code, 403)
+
+    def test_studio_confirmation_and_queue_only_on_post(self):
+        self.client.force_login(self.user)
+        url = f"/jobs/{self.job.pk}/run/"
+        self.assertContains(self.client.get(url), "Подтвердить")
+        self.assertFalse(Run.objects.exists())
+        self.assertRedirects(self.client.post(url), "/runs/")
+        self.assertEqual(Run.objects.get().status, "queued")
+
+    def test_studio_csrf_and_job_edit_preserve_mapping(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        self.assertEqual(client.post(f"/jobs/{self.job.pk}/run/").status_code, 403)
+        self.client.force_login(self.user)
+        data = {"name": "renamed", "connection": self.connection.pk, "source_schema": "erp",
+                "source_table": self.job.source_table, "target_schema": "public", "target_table": "contractors",
+                "cron": "0 3 * * *", "timezone": "Europe/Moscow", "batch_size": 1000,
+                "columns": json.dumps({"Имя": "name"}), "enabled": "on"}
+        response = self.client.post(f"/jobs/{self.job.pk}/edit/", data)
+        self.assertRedirects(response, "/jobs/")
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.columns, {"Имя": "name"})
+        self.assertEqual(self.job.cron, "0 3 * * *")
+        self.assertIsNone(self.job.next_run_at)
 
     def test_action_requires_csrf(self):
         client = Client(enforce_csrf_checks=True)

@@ -1,0 +1,22 @@
+{% load static %}<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }} · TransferData</title><link rel="stylesheet" href="{% static 'panel/studio.css' %}?v=1">{{ form.media }}</head>
+<body><svg class="symbols" xmlns="http://www.w3.org/2000/svg"><defs>
+<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+<symbol id="i-transfer" viewBox="0 0 24 24"><path d="M3 7h17m-5-5 5 5-5 5M21 17H4m5-5-5 5 5 5"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+<symbol id="i-out" viewBox="0 0 24 24"><path d="M10 4H4v16h6M9 12h12m-5-5 5 5-5 5"/></symbol>
+</defs></svg>
+<aside class="sidebar"><a class="brand" href="{% url 'td_overview' %}"><span class="brand-icon"><svg><use href="#i-transfer"/></svg></span><span>Transfer<span class="brand-light">Data</span><small>ПЛАТФОРМА ИНТЕГРАЦИИ</small></span></a>
+<p class="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</p><nav>
+<a class="{% if section == 'overview' %}active{% endif %}" href="{% url 'td_overview' %}"><svg><use href="#i-grid"/></svg>Обзор</a>
+{% if perms.panel.view_job %}<a class="{% if section == 'jobs' %}active{% endif %}" href="{% url 'td_jobs' %}"><svg><use href="#i-transfer"/></svg>Задания переноса</a>{% endif %}
+{% if perms.panel.view_run %}<a class="{% if section == 'history' %}active{% endif %}" href="{% url 'td_history' %}"><svg><use href="#i-clock"/></svg>История запусков</a>{% endif %}
+{% if perms.panel.view_connection %}<a class="{% if section == 'connections' %}active{% endif %}" href="{% url 'td_connections' %}"><svg><use href="#i-db"/></svg>Подключения</a>{% endif %}
+</nav><div class="sidebar-bottom"><div class="environment"><span class="environment-dot"></span><div>Рабочая среда<small>SQL Server → PostgreSQL</small></div></div><div class="account"><span class="avatar">{{ user.username|first|upper }}</span><span>{{ user.username }}<small>Пользователь панели</small></span><form method="post" action="{% url 'admin:logout' %}">{% csrf_token %}<button title="Выйти" aria-label="Выйти"><svg><use href="#i-out"/></svg></button></form></div></div></aside>
+<div class="workspace"><header class="topbar"><span>Рабочее пространство <span class="crumb">/</span> <strong>{{ title }}</strong></span><span class="topbar-date">{{ now|date:"d E Y" }}<span class="timezone">Москва</span></span></header>
+<main>{% for message in messages %}<div class="notice {{ message.tags }}">{{ message }}</div>{% endfor %}{% block content %}{% endblock %}</main><footer>TransferData <span>Ваши данные. В движении.</span></footer></div></body></html>
