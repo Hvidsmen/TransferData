@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms import JobForm
-from .models import Connection, Job, Run
+from .models import Connection, Job, JobGroup, Run
 from .services import enqueue
 
 
@@ -55,8 +55,8 @@ def overview(request):
                                 "height": round(100 * daily.get(today - timedelta(days=offset), 0) / peak)}
                                for offset in range(6, -1, -1)]
     if request.user.has_perm("panel.view_job"):
-        context["jobs"] = Job.objects.select_related("connection").order_by("name")[:3]
-        context["job_count"] = Job.objects.count()
+        context["jobs"] = Job.objects.filter(is_deleted=False, archived=False).select_related("connection", "group").order_by("name")[:3]
+        context["job_count"] = Job.objects.filter(is_deleted=False, archived=False).count()
     return screen(request, "overview.html", **context)
 
 
@@ -79,15 +79,16 @@ def history(request):
 def jobs(request):
     query = request.GET.get("q", "").strip()
     group = request.GET.get("group", "")
-    records = Job.objects.select_related("connection").order_by("name")
+    state = request.GET.get("state", "active")
+    records = Job.objects.filter(is_deleted=False, archived=state == "archived").select_related("connection", "group").order_by("name")
     if group == "__ungrouped__":
-        records = records.filter(group="")
-    elif group:
-        records = records.filter(group=group)
+        records = records.filter(group__isnull=True)
+    elif group.isdecimal():
+        records = records.filter(group_id=int(group))
     if query:
         records = records.filter(Q(name__icontains=query) | Q(source_table__icontains=query) | Q(target_table__icontains=query) | Q(procedure_name__icontains=query))
-    return screen(request, "jobs.html", section="jobs", title="Задания", query=query, group=group,
-                  groups=Job.objects.exclude(group="").order_by("group").values_list("group", flat=True).distinct(),
+    return screen(request, "jobs.html", section="jobs", title="Задания", query=query, group=group, state=state,
+                  groups=JobGroup.objects.all(),
                   page=Paginator(records, 12).get_page(request.GET.get("page")))
 
 
@@ -111,7 +112,7 @@ def edit(request, kind, pk=None):
     if not request.user.has_perm(permission):
         from django.core.exceptions import PermissionDenied
         raise PermissionDenied
-    instance = get_object_or_404(model, pk=pk) if pk else None
+    instance = get_object_or_404(model.objects.filter(is_deleted=False) if kind == "job" else model, pk=pk) if pk else None
     form = form_class(request.POST or None, instance=instance)
     if request.method == "POST" and form.is_valid():
         obj = form.save(commit=False)
@@ -138,7 +139,7 @@ def edit(request, kind, pk=None):
 @staff_member_required(login_url="admin:login")
 @permission_required("panel.change_job", raise_exception=True)
 def action(request, pk, operation):
-    job = get_object_or_404(Job.objects.select_related("connection"), pk=pk)
+    job = get_object_or_404(Job.objects.filter(is_deleted=False).select_related("connection"), pk=pk)
     if job.job_type == "procedure" and operation == "run":
         if request.method == "GET":
             return redirect("td_action", pk=pk, operation="execute")

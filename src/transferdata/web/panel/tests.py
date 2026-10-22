@@ -11,11 +11,87 @@ from django.test import Client, TestCase
 from django.utils import timezone
 from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, select, text
 
-from .models import Connection, Job, Run
+from .models import Connection, Job, JobGroup, Run
 from .services import enqueue, execute_next, schedule_due
 
 
 class PanelTests(TestCase):
+    def test_group_catalogue_rename_and_delete_keep_jobs(self):
+        self.client.force_login(self.user)
+        self.assertRedirects(self.client.post('/groups/', {'name': 'Справочники'}), '/groups/')
+        group = JobGroup.objects.get(name='Справочники')
+        self.job.group = group
+        self.job.save()
+        self.client.post('/groups/', {'pk': group.pk, 'name': 'Новая группа'})
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.group.name, 'Новая группа')
+        response = self.client.post('/groups/', {'pk': group.pk, 'operation': 'delete'})
+        self.assertContains(response, 'сохранятся')
+        self.assertTrue(JobGroup.objects.filter(pk=group.pk).exists())
+        self.client.post('/groups/', {'pk': group.pk, 'operation': 'delete', 'confirmed': 'yes'})
+        self.job.refresh_from_db()
+        self.assertIsNone(self.job.group)
+
+    def test_bulk_group_archive_restore_and_delete_preserve_history(self):
+        self.client.force_login(self.user)
+        group = JobGroup.objects.create(name='Справочники')
+        payload = {'selected': [self.job.pk], 'operation': 'group', 'group': group.pk}
+        self.assertContains(self.client.post('/jobs/bulk/', payload), 'Подтвердить')
+        self.job.refresh_from_db()
+        self.assertIsNone(self.job.group)
+        self.client.post('/jobs/bulk/', {**payload, 'confirmed': 'yes'})
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.group, group)
+        run, _ = enqueue(self.job, 'check')
+        run.status = 'success'
+        run.save()
+        self.job.enabled = True
+        self.job.save()
+        payload = {'selected': [self.job.pk], 'operation': 'archive', 'confirmed': 'yes'}
+        self.client.post('/jobs/bulk/', payload)
+        self.job.refresh_from_db()
+        self.assertTrue(self.job.archived)
+        self.assertFalse(self.job.enabled)
+        self.assertNotContains(self.client.get('/jobs/'), 'aria-label="Выбрать contractors"')
+        self.assertContains(self.client.get('/jobs/', {'state': 'archived'}), 'aria-label="Выбрать contractors"')
+        with self.assertRaises(ValidationError):
+            enqueue(self.job, 'run')
+        self.client.post('/jobs/bulk/', {**payload, 'operation': 'restore'})
+        self.job.refresh_from_db()
+        self.assertFalse(self.job.archived)
+        self.assertFalse(self.job.enabled)
+        self.client.post('/jobs/bulk/', {**payload, 'operation': 'delete'})
+        self.job.refresh_from_db()
+        self.assertTrue(self.job.is_deleted)
+        self.assertTrue(Run.objects.filter(pk=run.pk).exists())
+        self.assertEqual(self.client.get(f'/jobs/{self.job.pk}/edit/').status_code, 404)
+
+    def test_bulk_restarts_skip_active_and_archive_is_atomic(self):
+        self.client.force_login(self.user)
+        other = Job.objects.create(name='Other', connection=self.connection, source_table='Other', target_table='other')
+        run, _ = enqueue(self.job, 'check')
+        payload = {'selected': [self.job.pk, other.pk], 'operation': 'archive', 'confirmed': 'yes'}
+        self.client.post('/jobs/bulk/', payload)
+        self.assertFalse(Job.objects.filter(archived=True).exists())
+        self.client.post('/jobs/bulk/', {**payload, 'operation': 'restart'})
+        self.assertEqual(Run.objects.filter(job=self.job).count(), 1)
+        self.assertEqual(Run.objects.get(job=other).action, 'run')
+        run.refresh_from_db()
+        self.assertEqual(run.status, 'queued')
+
+    def test_bulk_requires_permissions_csrf_and_valid_selection(self):
+        self.client.force_login(self.user)
+        payload = {'selected': [999999], 'operation': 'delete', 'confirmed': 'yes'}
+        self.assertEqual(self.client.post('/jobs/bulk/', payload).status_code, 400)
+        self.assertEqual(self.client.get('/jobs/bulk/').status_code, 405)
+        secured = Client(enforce_csrf_checks=True)
+        secured.force_login(self.user)
+        self.assertEqual(secured.post('/jobs/bulk/', payload).status_code, 403)
+        self.user.is_superuser = False
+        self.user.save()
+        self.assertEqual(self.client.post('/jobs/bulk/', payload).status_code, 403)
+        self.assertEqual(self.client.post('/groups/', {'name': 'Forbidden'}).status_code, 403)
+
     def test_failed_connection_stops_preparation_before_structure_and_ddl(self):
         run, _ = enqueue(self.job, "prepare")
         source = MagicMock()
@@ -65,10 +141,11 @@ class PanelTests(TestCase):
 
     def test_create_procedure_checks_only_source_and_groups_filter(self):
         self.client.force_login(self.user)
+        group = JobGroup.objects.create(name="Регламентные")
         self.connection.target_host = ""
         self.connection.target_database = ""
         self.connection.save()
-        data = {"name": "Refresh models", "job_type": "procedure", "group": "Регламентные",
+        data = {"name": "Refresh models", "job_type": "procedure", "group": group.pk,
                 "connection": self.connection.pk, "procedure_schema": "dbo", "procedure_name": "RefreshModels",
                 "procedure_parameters": '{"FullLoad": true}', "procedure_timeout": 120,
                 "cron": "0 3 * * *", "timezone": "Europe/Moscow"}
@@ -96,7 +173,7 @@ class PanelTests(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, "success")
         self.assertEqual(run.details, {"return_code": 0})
-        self.assertContains(self.client.get("/jobs/", {"group": "Регламентные"}), "dbo.RefreshModels")
+        self.assertContains(self.client.get("/jobs/", {"group": group.pk}), "dbo.RefreshModels")
         self.assertNotContains(self.client.get("/jobs/", {"group": "__ungrouped__"}), "dbo.RefreshModels")
         self.assertEqual(self.client.get(f"/jobs/{job.pk}/prepare/").status_code, 404)
         self.assertContains(self.client.get(f"/runs/{run.pk}/"), "dbo.RefreshModels")

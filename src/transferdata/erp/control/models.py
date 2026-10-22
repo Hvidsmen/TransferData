@@ -29,8 +29,10 @@ class DatabaseConnection(models.Model):
 
 class ETLJob(models.Model):
     name = models.CharField(max_length=150)
-    group = models.CharField('Группа заданий', max_length=100, blank=True,
-                             help_text='Выберите существующую группу или введите название новой. Пустое поле — без группы.')
+    group = models.ForeignKey('panel.JobGroup', verbose_name='Группа заданий', null=True, blank=True,
+                              on_delete=models.SET_NULL)
+    archived = models.BooleanField(default=False, editable=False)
+    is_deleted = models.BooleanField(default=False, editable=False)
     description = models.TextField(blank=True)
     source_connection = models.ForeignKey(DatabaseConnection, on_delete=models.PROTECT, related_name='source_jobs')
     target_connection = models.ForeignKey(DatabaseConnection, on_delete=models.PROTECT, related_name='target_jobs')
@@ -71,6 +73,8 @@ class ETLJob(models.Model):
                 raise ValidationError('Источник и назначение должны быть отдельными базами.')
     def runnable(self):
         self.full_clean()
+        if self.archived or self.is_deleted:
+            raise ValidationError('Задание находится в архиве или удалено.')
         if not self.is_active or self.load_mode != 'FULL':
             raise ValidationError('Задание отключено или Incremental Load ещё не реализован.')
     @property

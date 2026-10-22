@@ -35,7 +35,7 @@ class JobForm(forms.ModelForm):
             for name in transfer_fields if kind == "procedure" else procedure_fields:
                 self.fields[name].disabled = True
         self.fields["procedure_parameters"].widget = forms.Textarea(attrs={"rows": 5})
-        self.fields["group"].widget = GroupWidget()
+        self.fields["group"].widget.attrs["data-searchable"] = "true"
         self.fields["cron"].label = "Расписание"
         self.fields["cron"].help_text = "Расписание применяется, когда включён переключатель «Включить расписание» и работает обработчик."
         if self.instance.pk:
@@ -45,17 +45,3 @@ class JobForm(forms.ModelForm):
                     metadata.details.get("tables", []), ensure_ascii=True)
                 self.fields["columns"].widget.attrs["data-columns"] = json.dumps(
                     metadata.details.get("columns", []), ensure_ascii=True)
-
-
-class GroupWidget(forms.TextInput):
-    template_name = "panel/group.html"
-
-    def __init__(self, attrs=None, model=Job):
-        super().__init__(attrs=attrs)
-        self.model = model
-
-    def get_context(self, name, value, attrs):
-        context = super().get_context(name, value, attrs)
-        context["groups"] = self.model.objects.exclude(group="").order_by("group").values_list("group", flat=True).distinct()
-        context["widget"]["attrs"]["list"] = "job-group-options"
-        return context

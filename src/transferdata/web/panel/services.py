@@ -15,12 +15,17 @@ from transferdata.web.maintenance import is_paused
 from django.core.exceptions import ValidationError
 
 
+@transaction.atomic
 def enqueue(job, action):
     if is_paused():
         raise ValidationError("Портал обновляется. Повторите запуск после завершения обновления.")
     if action not in dict(Run.ACTIONS):
         raise ValueError("Unknown action")
     job.full_clean()
+    job = Job.objects.select_for_update().select_related("connection").get(pk=job.pk)
+    job.full_clean()
+    if job.archived or job.is_deleted:
+        raise ValidationError("Задание находится в архиве или удалено.")
     if job.job_type == "procedure":
         if action == "run":
             action = "execute"
@@ -40,14 +45,17 @@ def enqueue(job, action):
 
 def schedule_due(now=None):
     now = now or timezone.now()
-    for job in Job.objects.filter(enabled=True).select_related("connection"):
+    for job in Job.objects.filter(enabled=True, archived=False, is_deleted=False).select_related("connection"):
         trigger = CronTrigger.from_crontab(job.cron, timezone=ZoneInfo(job.timezone))
         if job.next_run_at is None:
             Job.objects.filter(pk=job.pk, next_run_at=None).update(
                 next_run_at=trigger.get_next_fire_time(None, now))
         elif job.next_run_at <= now:
             with transaction.atomic():
-                enqueue(job, "run")
+                try:
+                    enqueue(job, "run")
+                except ValidationError:
+                    continue
                 Job.objects.filter(pk=job.pk).update(next_run_at=trigger.get_next_fire_time(now, now))
 
 

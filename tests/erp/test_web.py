@@ -58,12 +58,55 @@ def test_history_filters(client, observer, job):
 
 
 def test_job_groups_filter_and_form_support(client, administrator_user, job):
-    job.group = 'Справочники'
+    from transferdata.web.panel.models import JobGroup
+    job.group = JobGroup.objects.create(name='Справочники')
     job.save()
     client.force_login(administrator_user)
-    response = client.get(reverse('erp:jobs'), {'group': 'Справочники'})
+    response = client.get(reverse('erp:jobs'), {'group': job.group_id})
     assert list(response.context['items']) == [job]
     assert not list(client.get(reverse('erp:jobs'), {'group': '__ungrouped__'}).context['items'])
     response = client.get(reverse('erp:job_edit', args=[job.pk]))
-    assert 'job-group-options' in response.content.decode()
-    assert response.context['form']['group'].value() == 'Справочники'
+    assert 'data-searchable' in response.content.decode()
+    assert response.context['form']['group'].value() == job.group_id
+
+
+def test_bulk_jobs_group_archive_restore_delete(client, administrator_user, job):
+    from transferdata.web.panel.models import JobGroup
+    group = JobGroup.objects.create(name='Общая группа')
+    client.force_login(administrator_user)
+    url = reverse('erp:job_bulk')
+    payload = {'selected': [job.pk], 'operation': 'group', 'group': group.pk}
+    assert client.post(url, payload).status_code == 200
+    job.refresh_from_db()
+    assert job.group is None
+    client.post(url, {**payload, 'confirmed': 'yes'})
+    job.refresh_from_db()
+    assert job.group == group
+    execution = ETLExecution.objects.create(job=job, status='SUCCESS')
+    client.post(url, {**payload, 'operation': 'archive', 'confirmed': 'yes'})
+    job.refresh_from_db()
+    assert job.archived and not job.schedule_enabled
+    assert not client.get(reverse('erp:jobs')).context['items']
+    assert list(client.get(reverse('erp:jobs'), {'state': 'archived'}).context['items']) == [job]
+    client.post(url, {**payload, 'operation': 'restore', 'confirmed': 'yes'})
+    job.refresh_from_db()
+    assert not job.archived
+    client.post(url, {**payload, 'operation': 'delete', 'confirmed': 'yes'})
+    job.refresh_from_db()
+    assert job.is_deleted
+    assert ETLExecution.objects.filter(pk=execution.pk).exists()
+    assert client.get(reverse('erp:job_edit', args=[job.pk])).status_code == 404
+
+
+def test_bulk_active_protection_and_observer_permission(client, administrator_user, observer, job):
+    url = reverse('erp:job_bulk')
+    payload = {'selected': [job.pk], 'operation': 'delete', 'confirmed': 'yes'}
+    client.force_login(observer)
+    assert client.post(url, payload).status_code == 403
+    client.force_login(administrator_user)
+    ETLExecution.objects.create(job=job)
+    client.post(url, payload)
+    job.refresh_from_db()
+    assert not job.is_deleted
+    client.post(url, {**payload, 'operation': 'restart'})
+    assert job.executions.count() == 1

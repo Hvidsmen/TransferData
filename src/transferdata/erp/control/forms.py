@@ -2,7 +2,6 @@ from django import forms
 from .models import DatabaseConnection, ETLJob
 from transferdata.web.schedule_widget import ScheduleWidget
 from transferdata.scheduling import simple_schedule
-from transferdata.web.panel.forms import GroupWidget
 
 class StyledForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
@@ -24,8 +23,8 @@ class JobForm(StyledForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['group'].widget.attrs['data-searchable'] = 'true'
         self.fields['schedule_enabled'].label = 'Включить расписание'
-        self.fields['group'].widget = GroupWidget(attrs={'class': 'form-control'}, model=ETLJob)
         self.fields['schedule_cron'].help_text = 'Время — в часовом поясе портала (по умолчанию Europe/Moscow).'
         if not self.is_bound and not self.instance.schedule_cron:
             at = self.instance.schedule_time

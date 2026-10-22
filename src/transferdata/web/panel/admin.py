@@ -5,7 +5,7 @@ from django.contrib.auth.models import Group, User
 from django.template.response import TemplateResponse
 from django.utils.html import format_html
 
-from .models import Connection, Job, Run
+from .models import Connection, Job, JobGroup, Run
 from .forms import JobForm
 from .services import enqueue
 
@@ -30,6 +30,7 @@ class PanelSite(admin.AdminSite):
 site = PanelSite(name="admin")
 site.register(User, UserAdmin)
 site.register(Group, GroupAdmin)
+site.register(JobGroup)
 
 
 @admin.register(Connection, site=site)

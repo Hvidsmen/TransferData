@@ -40,10 +40,24 @@ class Connection(models.Model):
                            "password_env": self.password_env, "sslmode": self.sslmode}}
 
 
+class JobGroup(models.Model):
+    name = models.CharField("Название группы", max_length=100, unique=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Группа заданий"
+        verbose_name_plural = "Группы заданий"
+
+    def __str__(self):
+        return self.name
+
+
 class Job(models.Model):
     name = models.CharField("Название задания", max_length=150, unique=True)
-    group = models.CharField("Группа заданий", max_length=100, blank=True,
-                             help_text="Выберите существующую группу или введите название новой. Пустое поле — без группы.")
+    group = models.ForeignKey(JobGroup, verbose_name="Группа заданий", null=True, blank=True,
+                              on_delete=models.SET_NULL)
+    archived = models.BooleanField(default=False, editable=False)
+    is_deleted = models.BooleanField(default=False, editable=False)
     job_type = models.CharField("Тип задания", max_length=20, default="transfer", choices=[
         ("transfer", "Перенос SQL Server → PostgreSQL"), ("procedure", "Процедура MS SQL Server")])
     connection = models.ForeignKey(Connection, on_delete=models.PROTECT, verbose_name="Подключение")

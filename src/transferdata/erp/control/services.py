@@ -6,10 +6,13 @@ from .models import ETLExecution, ETLExecutionLog
 from transferdata.erp.engine.exceptions import ETLError
 from transferdata.erp.engine.runner import run
 
+@transaction.atomic
 def enqueue(job, user=None, schedule_key=None):
     from transferdata.web.maintenance import is_paused
     if is_paused():
         raise ValidationError('Портал обновляется. Повторите запуск позже.')
+    job.runnable()
+    job = type(job).objects.select_for_update().select_related('source_connection', 'target_connection').get(pk=job.pk)
     job.runnable()
     try:
         with transaction.atomic():
@@ -61,7 +64,7 @@ def enqueue_due_jobs():
     from transferdata.scheduling import due_today
     now = timezone.localtime()
     count = 0
-    for job in ETLJob.objects.filter(is_active=True, schedule_enabled=True, load_mode='FULL'):
+    for job in ETLJob.objects.filter(is_active=True, schedule_enabled=True, load_mode='FULL', archived=False, is_deleted=False):
         if job.schedule_cron:
             try:
                 if not due_today(job.schedule_cron, now):
