@@ -90,6 +90,7 @@ try
             var properties = entity.Properties.Select(property => new
             {
                 name = property.Name, type = property.Type.ToString(),
+                is_measure = property.Purpose.IsMeasure(), is_dimension = property.Purpose.IsDimension(),
                 references = References(property), is_reference = property.Type.IsEntity && property.Name != "Ссылка",
                 columns = property.Columns.Select(column => new {
                     name = column.Name, purpose = column.Purpose.ToString(), type = column.Type.ToString(),
