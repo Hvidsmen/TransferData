@@ -10,9 +10,13 @@ from transferdata.cli import engines
 from transferdata.etl import transfer
 from transferdata.schema import prepare_target
 from .models import Job, Run
+from transferdata.web.maintenance import is_paused
+from django.core.exceptions import ValidationError
 
 
 def enqueue(job, action):
+    if is_paused():
+        raise ValidationError("Портал обновляется. Повторите запуск после завершения обновления.")
     if action not in dict(Run.ACTIONS):
         raise ValueError("Unknown action")
     job.full_clean()

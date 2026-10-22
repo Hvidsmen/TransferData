@@ -164,6 +164,21 @@ class PanelTests(TestCase):
         self.assertEqual(run.status, "interrupted")
         self.assertEqual(Run.objects.count(), 1)
 
+    def test_maintenance_pauses_worker_and_rejects_new_jobs(self):
+        from transferdata.web.maintenance import worker_paused
+        run, _ = enqueue(self.job, "run")
+        with tempfile.TemporaryDirectory() as directory, self.settings(STATE_DIR=Path(directory)):
+            (Path(directory) / "maintenance.flag").touch()
+            call_command("etlworker", once=True)
+            self.assertTrue((Path(directory) / "paused-transferdata").exists())
+            run.refresh_from_db()
+            self.assertEqual(run.status, "queued")
+            with self.assertRaises(ValidationError):
+                enqueue(self.job, "check")
+            (Path(directory) / "maintenance.flag").unlink()
+            self.assertFalse(worker_paused("transferdata"))
+            self.assertFalse((Path(directory) / "paused-transferdata").exists())
+
     def test_driver_failure_is_sanitized(self):
         run, _ = enqueue(self.job, "run")
         with patch("transferdata.web.panel.services.engines", side_effect=RuntimeError("password=secret-data")):

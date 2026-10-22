@@ -7,6 +7,9 @@ from transferdata.erp.engine.exceptions import ETLError
 from transferdata.erp.engine.runner import run
 
 def enqueue(job, user=None, schedule_key=None):
+    from transferdata.web.maintenance import is_paused
+    if is_paused():
+        raise ValidationError('Портал обновляется. Повторите запуск позже.')
     job.runnable()
     try:
         with transaction.atomic():

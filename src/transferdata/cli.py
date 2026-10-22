@@ -149,6 +149,8 @@ def main():
         lock_dir = Path(config.get("lock_directory", ".state"))
         if not lock_dir.is_absolute():
             lock_dir = config_path.parent / lock_dir
+        if args.command in {"run", "serve", "prepare"} and (lock_dir / "maintenance.flag").exists():
+            raise RuntimeError("Portal maintenance in progress; data operations are paused")
         with instance_lock(lock_dir):
             source, target = engines(config)
             try:

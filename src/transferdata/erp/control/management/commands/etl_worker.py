@@ -9,6 +9,7 @@ from django.utils import timezone
 from transferdata.erp.control.models import WorkerLease, ETLExecution
 from django.db import close_old_connections, OperationalError
 from transferdata.erp.control.services import claim, execute, recover_interrupted, enqueue_due_jobs
+from transferdata.web.maintenance import worker_paused
 
 class Command(BaseCommand):
     help = 'Single local worker; OS lock is released automatically on process death.'
@@ -43,6 +44,11 @@ class Command(BaseCommand):
             last_schedule_check = 0
             while True:
                 close_old_connections()
+                if worker_paused("erp"):
+                    if options['once']:
+                        return
+                    time.sleep(2)
+                    continue
                 if time.monotonic() - last_schedule_check >= 30:
                     enqueue_due_jobs()
                     last_schedule_check = time.monotonic()

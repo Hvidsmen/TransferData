@@ -6,6 +6,7 @@ from django.utils import timezone
 from transferdata.cli import instance_lock
 from transferdata.web.panel.models import Run
 from transferdata.web.panel.services import execute_next, schedule_due
+from transferdata.web.maintenance import worker_paused
 
 
 class Command(BaseCommand):
@@ -24,6 +25,11 @@ class Command(BaseCommand):
             try:
                 while True:
                     close_old_connections()
+                    if worker_paused("transferdata"):
+                        if options["once"]:
+                            return
+                        time.sleep(2)
+                        continue
                     schedule_due()
                     worked = execute_next()
                     if options["once"]:

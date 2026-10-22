@@ -51,3 +51,17 @@ def test_subsystems_share_login_but_keep_job_lists_separate(client, administrato
     assert response.status_code == 200
     assert job.name.encode() in response.content
     assert b'Postgres_ONLY' not in response.content
+
+
+def test_maintenance_does_not_claim_pending_erp_work(job, tmp_path, settings):
+    from transferdata.erp.control.services import enqueue
+    from django.core.exceptions import ValidationError
+    settings.STATE_DIR = tmp_path
+    execution = enqueue(job)
+    (tmp_path / 'maintenance.flag').touch()
+    call_command('etl_worker', once=True)
+    execution.refresh_from_db()
+    assert execution.status == 'PENDING'
+    assert (tmp_path / 'paused-erp').exists()
+    with pytest.raises(ValidationError):
+        enqueue(job)
