@@ -1,0 +1,8 @@
+{% extends "admin/change_list.html" %}
+{% block content_title %}
+<div class="td-heading td-list-heading"><div><p class="td-eyebrow">УПРАВЛЕНИЕ ДАННЫМИ</p>
+{% if opts.model_name == 'run' %}<h1>История запусков</h1><p class="td-subtitle">Состояние операций, количество строк и время выполнения.</p>
+{% elif opts.model_name == 'job' %}<h1>Задания переноса</h1><p class="td-subtitle">Таблицы, расписания и действия для ваших переносов.</p>
+{% else %}<h1>Подключения</h1><p class="td-subtitle">Источники SQL Server и базы назначения PostgreSQL.</p>{% endif %}
+</div></div>
+{% endblock %}

@@ -21,7 +21,7 @@ WSGI_APPLICATION = "transferdata.web.wsgi.application"
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
-    "transferdata.web.panel",
+    "django.contrib.humanize", "transferdata.web.panel",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -34,6 +34,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates",
+              "DIRS": [Path(__file__).parent / "panel" / "templates"],
               "APP_DIRS": True, "OPTIONS": {"context_processors": [
                   "django.template.context_processors.request",
                   "django.contrib.auth.context_processors.auth",

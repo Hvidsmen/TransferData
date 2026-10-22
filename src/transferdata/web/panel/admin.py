@@ -3,6 +3,7 @@ from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from django.contrib.auth.models import Group, User
 from django.template.response import TemplateResponse
+from django.utils.html import format_html
 
 from .models import Connection, Job, Run
 from .forms import JobForm
@@ -12,7 +13,7 @@ from .services import enqueue
 class PanelSite(admin.AdminSite):
     site_header = "TransferData"
     site_title = "TransferData"
-    index_title = "Управление ETL"
+    index_title = "Обзор"
     index_template = "panel/index.html"
 
     def index(self, request, extra_context=None):
@@ -21,6 +22,7 @@ class PanelSite(admin.AdminSite):
             stats = {"queued": Run.objects.filter(status="queued").count(),
                      "running": Run.objects.filter(status="running").count(),
                      "failed": Run.objects.filter(status="failed").count(),
+                     "success": Run.objects.filter(status="success").count(),
                      "recent": Run.objects.select_related("job")[:8]}
         return super().index(request, {**(extra_context or {}), "etl_stats": stats})
 
@@ -32,6 +34,7 @@ site.register(Group, GroupAdmin)
 
 @admin.register(Connection, site=site)
 class ConnectionAdmin(admin.ModelAdmin):
+    change_list_template = "panel/change_list.html"
     list_display = ["name", "source_host", "source_database", "target_host", "target_database"]
     search_fields = ["name", "source_host", "target_host"]
     fieldsets = [
@@ -45,6 +48,7 @@ class ConnectionAdmin(admin.ModelAdmin):
 
 @admin.register(Job, site=site)
 class JobAdmin(admin.ModelAdmin):
+    change_list_template = "panel/change_list.html"
     form = JobForm
     list_display = ["name", "source_table", "target_table", "enabled", "cron", "timezone", "next_run_at"]
     list_filter = ["enabled", "connection"]
@@ -98,11 +102,21 @@ class JobAdmin(admin.ModelAdmin):
 
 @admin.register(Run, site=site)
 class RunAdmin(admin.ModelAdmin):
-    list_display = ["id", "job", "action", "status", "created_at", "rows", "seconds"]
+    change_list_template = "panel/change_list.html"
+    list_display = ["run_number", "job", "action", "status_badge", "created_at", "rows", "seconds"]
     list_filter = ["status", "action", "job"]
     list_select_related = ["job"]
     fields = ["job", "action", "status", "created_at", "started_at", "finished_at", "rows", "seconds", "message", "details"]
     readonly_fields = fields
+
+    @admin.display(description="Запуск", ordering="id")
+    def run_number(self, obj):
+        return f"#{obj.pk:04d}"
+
+    @admin.display(description="Состояние", ordering="status")
+    def status_badge(self, obj):
+        return format_html('<span class="td-badge td-badge--{}"><span class="td-dot"></span>{}</span>',
+                           obj.status, obj.get_status_display())
 
     def has_add_permission(self, request):
         return False

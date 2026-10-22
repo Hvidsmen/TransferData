@@ -1,21 +1,37 @@
 {% extends "admin/index.html" %}
+{% load humanize %}
+{% block content_title %}{% endblock %}
 {% block content %}
-<div class="module" style="padding:18px;box-sizing:border-box">
-  <h2>SQL Server → PostgreSQL</h2>
-  <p>Создайте подключение и задание. Выделите задание в списке и выберите действие:
-  проверка, структура, создание таблицы или загрузка.</p>
-  <p>Задания выполняет отдельный worker. Включённое расписание работает, пока worker запущен.</p>
+<div class="td-dashboard">
+  <div class="td-heading">
+    <div><p class="td-eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</p><h1>Данные под контролем</h1>
+    <p class="td-subtitle">Переносы SQL Server → PostgreSQL, расписания и результаты — в одном месте.</p></div>
+    {% if perms.panel.add_job %}<a class="td-primary" href="{% url 'admin:panel_job_add' %}">＋ Новое задание</a>{% endif %}
+  </div>
   {% if etl_stats %}
-  <p><strong>В очереди: {{ etl_stats.queued }}</strong> · Выполняется: {{ etl_stats.running }} · Ошибок: {{ etl_stats.failed }}</p>
-  <h3>Последние запуски</h3>
-  <table style="width:100%"><thead><tr><th>Задание</th><th>Действие</th><th>Состояние</th><th>Строк</th><th>Начало</th></tr></thead><tbody>
-  {% for run in etl_stats.recent %}<tr>
-    <td><a href="{% url 'admin:panel_run_change' run.pk %}">{{ run.job }}</a></td>
-    <td>{{ run.get_action_display }}</td><td>{{ run.get_status_display }}</td>
-    <td>{{ run.rows|default_if_none:"—" }}</td><td>{{ run.created_at }}</td>
-  </tr>{% empty %}<tr><td colspan="5">Запусков пока нет.</td></tr>{% endfor %}
-  </tbody></table>
+  <div class="td-metrics">
+    <a class="td-metric" href="{% url 'admin:panel_run_changelist' %}?status__exact=running"><span class="td-metric-label"><i class="td-dot td-blue"></i> Выполняется</span><strong>{{ etl_stats.running|intcomma }}</strong><span>Активные операции</span></a>
+    <a class="td-metric" href="{% url 'admin:panel_run_changelist' %}?status__exact=queued"><span class="td-metric-label"><i class="td-dot td-amber"></i> В очереди</span><strong>{{ etl_stats.queued|intcomma }}</strong><span>Ожидают обработки</span></a>
+    <a class="td-metric" href="{% url 'admin:panel_run_changelist' %}?status__exact=success"><span class="td-metric-label"><i class="td-dot td-green"></i> Успешно</span><strong>{{ etl_stats.success|intcomma }}</strong><span>Завершённые операции</span></a>
+    <a class="td-metric" href="{% url 'admin:panel_run_changelist' %}?status__exact=failed"><span class="td-metric-label"><i class="td-dot td-red"></i> Требуют внимания</span><strong>{{ etl_stats.failed|intcomma }}</strong><span>Операции с ошибками</span></a>
+  </div>
+  <section class="td-card">
+    <header class="td-card-heading"><div><h2>Последние запуски</h2><p>Результаты проверок, создания таблиц и загрузок</p></div><a href="{% url 'admin:panel_run_changelist' %}">Вся история →</a></header>
+    <div class="td-table-scroll"><table class="td-history"><thead><tr><th>Задание</th><th>Операция</th><th>Состояние</th><th>Строк</th><th>Время</th></tr></thead><tbody>
+    {% for run in etl_stats.recent %}<tr>
+      <td><a class="td-job-link" href="{% url 'admin:panel_run_change' run.pk %}">{{ run.job }}</a><small>#{{ run.pk|stringformat:"04d" }}</small></td>
+      <td>{{ run.get_action_display }}</td><td><span class="td-badge td-badge--{{ run.status }}"><span class="td-dot"></span>{{ run.get_status_display }}</span></td>
+      <td class="td-number">{% if run.rows != None %}{{ run.rows|intcomma }}{% else %}—{% endif %}</td><td>{{ run.created_at|date:"d.m.Y · H:i" }}</td>
+    </tr>{% empty %}<tr><td colspan="5"><div class="td-empty"><strong>Здесь появится история переносов</strong><p>Создайте задание или запустите проверку подключения.</p></div></td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
   {% endif %}
+  <div class="td-shortcuts">
+    {% if perms.panel.view_job %}<a class="td-shortcut" href="{% url 'admin:panel_job_changelist' %}"><span class="td-shortcut-icon">⇄</span><div><h2>Задания переноса</h2><p>Таблицы, расписания и соответствия столбцов</p></div><b>→</b></a>{% endif %}
+    {% if perms.panel.view_connection %}<a class="td-shortcut" href="{% url 'admin:panel_connection_changelist' %}"><span class="td-shortcut-icon">⌘</span><div><h2>Подключения</h2><p>Источники SQL Server и базы PostgreSQL</p></div><b>→</b></a>{% endif %}
+  </div>
+  <div class="td-note"><span>ℹ</span><p>Расписание и очередь обрабатываются отдельным worker. После постановки действия обновите историю, чтобы увидеть результат.</p></div>
+  <details class="td-management"><summary>Все разделы и управление доступом</summary>{{ block.super }}</details>
 </div>
-{{ block.super }}
 {% endblock %}
+{% block sidebar %}{% endblock %}
