@@ -51,17 +51,19 @@ def execute_next():
         return False
     started = monotonic()
     source = target = None
+    stage = "Подключение к базам"
     try:
         config = run.snapshot
         job = config["jobs"][0]
         source, target = engines(config)
-        if run.action == "check":
+        if run.action in {"check", "prepare"}:
             for engine in (source, target):
                 with engine.connect() as connection:
                     if connection.scalar(text("SELECT 1")) != 1:
                         raise RuntimeError("Unexpected database response")
             run.message = "Оба подключения проверены."
-        elif run.action == "inspect":
+        if run.action in {"inspect", "prepare"}:
+            stage = "Получение структуры источника"
             with source.connect() as connection:
                 inspector = inspect(connection)
                 columns = inspector.get_columns(job["source_table"], schema=job["source_schema"])
@@ -69,21 +71,23 @@ def execute_next():
                                "columns": [{"name": c["name"], "type": str(c["type"]),
                                             "bytes": len(c["name"].encode("utf-8"))} for c in columns]}
             run.message = "Структура получена. Имена длиннее 63 UTF-8 байт нужно переименовать в маппинге."
-        elif run.action == "prepare":
+        if run.action == "prepare":
+            stage = "Создание таблицы назначения"
             created = prepare_target(source, target, job)
-            run.message = "Таблица создана." if created else "Таблица уже существует, изменений нет."
+            run.message = "Подключения проверены, структура получена. " + ("Таблица создана." if created else "Таблица уже существует, изменений нет.")
         elif run.action == "run":
+            stage = "Перенос данных"
             result = transfer(source, target, job)
             run.rows = result.rows
             run.message = "Полная загрузка завершена."
-        else:
+        elif run.action not in {"check", "inspect"}:
             raise ValueError("Unknown action")
         run.status = "success"
     except Exception as exc:
         # Driver exception text can contain row values, SQL and credentials.
         # Never persist it or print an exception traceback into the panel.
         run.status = "failed"
-        run.message = f"Ошибка: {type(exc).__name__}. Проверьте подключения, права, имена и типы столбцов."
+        run.message = f"{stage}: ошибка {type(exc).__name__}. Проверьте подключения, права, имена и типы столбцов."
     finally:
         for engine in (source, target):
             if engine is not None:

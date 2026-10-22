@@ -22,7 +22,7 @@ class JobForm(forms.ModelForm):
         self.fields["cron"].label = "Расписание"
         self.fields["cron"].help_text = "Расписание применяется, когда включён переключатель «Включить расписание» и работает обработчик."
         if self.instance.pk:
-            metadata = Run.objects.filter(job=self.instance, action="inspect", status="success").first()
+            metadata = Run.objects.filter(job=self.instance, action__in=["inspect", "prepare"], status="success").first()
             if metadata:
                 self.fields["source_table"].widget.attrs["data-tables"] = json.dumps(
                     metadata.details.get("tables", []), ensure_ascii=True)

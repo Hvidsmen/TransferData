@@ -6,6 +6,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import permission_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404, redirect, render
@@ -110,7 +111,18 @@ def edit(request, kind, pk=None):
         obj = form.save(commit=False)
         if kind == "job" and (not pk or {"cron", "timezone", "enabled"}.intersection(form.changed_data)):
             obj.next_run_at = None
-        obj.save()
+        try:
+            with transaction.atomic():
+                obj.save()
+                if kind == "job" and pk is None:
+                    enqueue(obj, "prepare")
+        except ValidationError as exc:
+            form.add_error(None, exc)
+            return screen(request, "edit.html", section=section, title="Создание задания",
+                          form=form, kind=kind)
+        if kind == "job" and pk is None:
+            messages.success(request, "Задание создано. Проверка подключений, получение структуры и создание таблицы поставлены в очередь. Результат — в истории запусков.")
+            return redirect("td_history")
         messages.success(request, "Изменения сохранены.")
         return redirect("td_" + section)
     return screen(request, "edit.html", section=section, title=("Настройка" if pk else "Создание") +

@@ -9,13 +9,37 @@ from django.core.exceptions import ValidationError
 from django.core.management import call_command, CommandError
 from django.test import Client, TestCase
 from django.utils import timezone
-from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, select
+from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, select, text
 
 from .models import Connection, Job, Run
 from .services import enqueue, execute_next, schedule_due
 
 
 class PanelTests(TestCase):
+    def test_new_job_queues_preparation_but_edit_does_not(self):
+        self.client.force_login(self.user)
+        data = {"name": "new route", "connection": self.connection.pk,
+                "source_schema": "erp", "source_table": "Example", "target_schema": "public",
+                "target_table": "example", "cron": "0 3 * * *", "timezone": "Europe/Moscow",
+                "batch_size": 1000, "columns": "{}"}
+        self.assertRedirects(self.client.post("/jobs/new/", data), "/runs/")
+        job = Job.objects.get(name="new route")
+        run = Run.objects.get(job=job)
+        self.assertEqual((run.action, run.status), ("prepare", "queued"))
+        self.assertEqual(run.snapshot["jobs"][0]["source_table"], "Example")
+        self.assertRedirects(self.client.post(f"/jobs/{job.pk}/edit/", data), "/jobs/")
+        self.assertEqual(Run.objects.filter(job=job).count(), 1)
+
+    def test_failed_auto_preparation_does_not_save_new_job(self):
+        self.client.force_login(self.user)
+        data = {"name": "new route", "connection": self.connection.pk,
+                "source_schema": "erp", "source_table": "Example", "target_schema": "public",
+                "target_table": "example", "cron": "0 3 * * *", "timezone": "Europe/Moscow",
+                "batch_size": 1000, "columns": "{}"}
+        with patch("transferdata.web.panel.studio.enqueue", side_effect=ValidationError("Maintenance")):
+            self.assertContains(self.client.post("/jobs/new/", data), "Maintenance")
+        self.assertFalse(Job.objects.filter(name="new route").exists())
+
     def setUp(self):
         self.connection = Connection.objects.create(name="Test", target_host="pg.test", target_database="analytics")
         self.job = Job.objects.create(name="contractors", connection=self.connection,
@@ -228,8 +252,11 @@ class PanelTests(TestCase):
                         self.assertTrue(execute_next())
                     run.refresh_from_db()
                     self.assertEqual(run.status, "success", run.message)
-                    if action == "inspect":
+                    if action in {"inspect", "prepare"}:
                         self.assertEqual(len(run.details["columns"]), 2)
+                    if action == "prepare":
+                        with dst.connect() as connection:
+                            self.assertEqual(connection.scalar(text('SELECT count(*) FROM contractors')), 0)
                 self.assertEqual(run.rows, 2)
                 target = Table("contractors", MetaData(), autoload_with=dst)
                 with dst.connect() as connection:
