@@ -281,3 +281,30 @@ def test_scan_progress_reports_missing_worker_and_real_phases(client, administra
     scan.refresh_from_db()
     assert scan.status == 'SUCCESS' and scan.phase == 'SAVING' and scan.finished_at >= scan.started_at
     assert 'Готово' in client.get(url).content.decode()
+
+
+def test_catalogue_defaults_to_latest_source_and_groups_filters_paginate(client, administrator_user, job):
+    from transferdata.erp.control.models import DatabaseConnection
+    client.force_login(administrator_user)
+    latest = DatabaseConnection.objects.create(name='Последняя база', server='test', database='ERP2',
+        authentication_type='WINDOWS', role='SOURCE')
+    DatabaseConnection.objects.create(name='Назначение новее', server='test', database='DWH', role='TARGET')
+    DatabaseConnection.objects.create(name='Отключено новее', server='test', database='ERP3', is_active=False)
+    for n in range(42):
+        OneCObject.objects.create(connection=latest, name=f'Справочник.Регион{n:02}', kind='Справочник')
+    OneCObject.objects.create(connection=latest, name='Документ.Регион', kind='Документ')
+    OneCObject.objects.create(connection=latest, name='Справочник.Склад', kind='Справочник')
+    url = reverse('erp:onec_catalogue')
+    response = client.get(url)
+    assert response.context['connection'] == latest
+    assert [row['kind'] for row in response.context['kinds']] == ['Документ', 'Справочник']
+    assert response.context['page'].paginator.count == 44
+    assert response.content.decode().count('class="onec-group-row"') == 2
+    filtered = client.get(url, {'kind': 'Справочник', 'q': 'Регион'})
+    assert filtered.context['page'].paginator.count == 42
+    assert 'kind=' in filtered.content.decode()
+    page2 = client.get(url, {'kind': 'Справочник', 'q': 'Регион', 'page': 2})
+    assert len(page2.context['page'].object_list) == 2
+    assert all(obj.kind == 'Справочник' for obj in page2.context['page'])
+    assert client.get(url, {'connection': job.source_connection_id}).context['connection'] == job.source_connection
+    assert client.get(url, {'kind': 'НетТакогоТипа'}).context['page'].paginator.count == 0

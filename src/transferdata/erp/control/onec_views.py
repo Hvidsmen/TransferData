@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.db.models import Count
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -32,16 +33,21 @@ def scan_context(connection):
 
 @login_required
 def catalogue(request):
-    connections = DatabaseConnection.objects.filter(is_active=True).exclude(role='TARGET').order_by('name')
-    connection = None
+    connections = DatabaseConnection.objects.filter(is_active=True).exclude(role='TARGET').order_by('-created_at', '-pk')
+    connection = connections.first()
     if request.GET.get('connection', '').isdecimal():
         connection = get_object_or_404(connections, pk=request.GET['connection'])
     objects = OneCObject.objects.filter(connection=connection, is_active=True)
+    kinds = list(objects.values('kind').annotate(count=Count('pk')).order_by('kind'))
+    kind = request.GET.get('kind', '').strip()
+    if kind:
+        objects = objects.filter(kind=kind)
     query = request.GET.get('q', '').strip()
     if query:
         objects = objects.filter(name__icontains=query)
     return render(request, 'erp/control/onec_catalogue.html', {'connections': connections, 'connection': connection,
-        'query': query, 'page': Paginator(objects, 40).get_page(request.GET.get('page')),
+        'query': query, 'kind': kind, 'kinds': kinds,
+        'page': Paginator(objects.order_by('kind', 'name', 'pk'), 40).get_page(request.GET.get('page')),
         **scan_context(connection)})
 
 
