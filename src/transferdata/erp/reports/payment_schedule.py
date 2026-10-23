@@ -42,7 +42,7 @@ def with_table_part(objects):
     return objects
 
 
-def generate(objects, *, usd=True, usd_resource=None):
+def generate(objects, *, usd=True, usd_resource=None, by_items=False):
     """No date restriction: includes all history and future schedule records."""
     objects = with_table_part(objects)
     m = ReportMetadata(objects)
@@ -83,9 +83,10 @@ def generate(objects, *, usd=True, usd_resource=None):
  GROUP BY {', '.join(group)}
  HAVING {' OR '.join(sum_resource(p) + ' <> 0' for p in measures)}
 )'''
-    fields, joins = [], []
+    fields, joins, output_names = [], [], []
     def field(expression, name):
         identifier(name)
+        output_names.append(name)
         fields.append(expression + ' AS ' + identifier(name))
     def ref(owner, prop, alias):
         refs = concrete_references(objects[owner], prop)
@@ -188,4 +189,7 @@ def generate(objects, *, usd=True, usd_resource=None):
     # Keep the separation dimension in the export; joins cannot cross areas.
     field(m.area(REGISTER, 't'), 'ОбластьДанных')
     select = 'SELECT\n ' + ',\n '.join(fields) + '\nFROM [DailyTurnovers] AS [t]\n' + '\n'.join(joins)
+    if by_items:
+        from .payment_schedule_items import detail_sql
+        return read_query(detail_sql(m, order, turnover, select, output_names))
     return read_query('WITH ' + turnover + '\n' + select)

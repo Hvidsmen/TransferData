@@ -111,3 +111,35 @@ def test_reference_select_preserves_rows_and_decodes_references_without_source_w
             assert all(by_id[n]['ИнвойсДата'] is None for n in (2, 3, 4))
         finally:
             cursor.close()
+
+
+@pytest.mark.skipif(os.environ.get('ETL_RUN_MSSQL_TESTS') != '1', reason='Real SQL Server not configured')
+def test_payment_allocation_preserves_positive_negative_and_fallback_totals():
+    from decimal import Decimal
+    from transferdata.erp.reports.payment_schedule_items import allocated_amount
+    config = DatabaseConnection(name='Allocation integration', server=os.environ['MSSQL_TEST_SERVER'],
+        port=int(os.environ.get('MSSQL_TEST_PORT', '1433')), database=os.environ['MSSQL_TEST_DATABASE'],
+        authentication_type='SQL', username=os.environ['MSSQL_TEST_USERNAME'],
+        credential_reference='MSSQL_TEST_PASSWORD', role='SOURCE')
+    # Read-only SQL exercises SQL Server decimal precision and cumulative rounding,
+    # including three equal goods lines, a credit payment and an unallocated zero-total order.
+    sql = f'''WITH [payments] AS (
+      SELECT * FROM (VALUES (1, CAST(100 AS decimal(28,6))), (2, -CAST(100 AS decimal(28,6))),
+      (3, CAST(0.01 AS decimal(28,6))), (4, CAST(12.345678 AS decimal(28,6)))) AS v([id], [USD])
+    ), [shares] AS (
+      SELECT *, CAST([last] AS decimal(28,6)) / CAST(3 AS decimal(28,6)) AS [ThroughShare],
+      CAST([first] AS decimal(28,6)) / CAST(3 AS decimal(28,6)) AS [BeforeShare]
+      FROM (VALUES (1, 0, 1), (2, 1, 2), (3, 2, 3)) AS v([line], [first], [last])
+    ) SELECT [p].[id], SUM({allocated_amount('USD')})
+    FROM [payments] AS [p]
+    CROSS APPLY (SELECT CAST(3 AS decimal(28,6)) AS [OrderTotal], [ThroughShare], [BeforeShare]
+      FROM [shares] WHERE [p].[id] <> 4
+      UNION ALL SELECT 0, NULL, NULL WHERE [p].[id] = 4) AS [i]
+    GROUP BY [p].[id] ORDER BY [p].[id]'''
+    with connect(config) as conn:
+        cursor = conn.cursor()
+        try:
+            actual = [row[1] for row in cursor.execute(sql).fetchall()]
+        finally:
+            cursor.close()
+    assert actual == [Decimal('100'), Decimal('-100'), Decimal('0.01'), Decimal('12.345678')]

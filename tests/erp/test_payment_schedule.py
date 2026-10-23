@@ -21,7 +21,7 @@ def payment_metadata():
                              year_offset=2000, configuration='test', version=42,
                              partitions=[{'key': 'shared', 'source': '_Area'}], table_parts=[])
     order, invoice, currency, org, supplier, enum = ['Документ.ЗаказПоставщику', 'Документ.Инвойс', 'Справочник.Валюты', 'Справочник.Организации', 'Справочник.Контрагенты', 'Перечисление.ТипыПлатежей']
-    for name in (org, supplier, currency):
+    for name in (org, supplier, currency, 'Справочник.Номенклатура'):
         obj(name, [p('Ссылка'), p('Наименование'), p('Код')])
     objects[currency]['properties'].append(p('БуквенныйКод'))
     for name in (order, invoice, POSITION, REGISTRY):
@@ -38,6 +38,7 @@ def payment_metadata():
     obj(RATES, [p('Период'), p('Валюта', [currency], dim=True), p('Курс'), p('Кратность')])
     objects[REGISTRY]['table_parts'] = [dict(name='ТаблицаПлатежи', table='_Lines', properties=[p('Ссылка'), p('ПлатежнаяПозиция', [POSITION])],
         partitions=deepcopy(objects[REGISTER]['partitions']))]
+    objects[order]['table_parts'] = [dict(name='Товары', table='_OrderGoods', properties=[p('Ссылка'), p('НомерСтроки'), p('Номенклатура', ['Справочник.Номенклатура']), p('Сумма')], partitions=deepcopy(objects[order]['partitions']))]
     targets = []
     for index, (name, data) in enumerate(objects.items()):
         if not name.startswith(('Документ.', 'Справочник.', 'Перечисление.')):
@@ -146,3 +147,48 @@ def test_command_reads_real_structures_and_creates_manual_job(job, payment_metad
     created = ETLJob.objects.get(target_table='PaymentScheduleReport')
     assert created.source_type == 'SQL_QUERY' and not created.schedule_enabled
     assert created.sql_query == output.read_text().strip() and '[USD]' in created.sql_query
+
+
+def test_item_report_preserves_payments_and_allocates_both_amounts(payment_metadata):
+    sql = generate(payment_metadata, by_items=True)
+    for name in ('НомерСтрокиЗаказа', 'НоменклатураСсылка', 'Номенклатура', 'ДоляНоменклатуры', 'ПроцентНоменклатуры', 'РаспределениеПлатежа'):
+        assert '[' + name + ']' in sql
+    assert 'FROM [Payments] AS [p]' in sql
+    assert 'LEFT JOIN [GoodsShares]' in sql and 'AND [goods].[OrderTotal] <> 0' in sql
+    assert 'Нулевая сумма товарных строк' in sql and 'Нет товарных строк заказа' in sql
+    assert 'ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW' in sql
+    assert 'CAST([p].[Сумма] AS decimal(28,6)) * [i].[ThroughShare]' in sql
+    assert 'CAST([p].[USD] AS decimal(28,6)) * [i].[ThroughShare]' in sql
+    assert '[goods].[Area] = [p].[ОбластьДанных]' in sql
+    # Detailed sums replace full payment sums, rather than duplicate them on every item.
+    assert '[p].[USD] AS [USD]' not in sql
+    assert '[p].[Сумма] AS [Сумма]' not in sql
+
+
+def test_item_report_rejects_missing_lines_and_cross_area_products(payment_metadata):
+    from copy import deepcopy
+    bad = deepcopy(payment_metadata)
+    bad['Документ.ЗаказПоставщику']['table_parts'] = []
+    with pytest.raises(ValidationError, match='Товары'):
+        generate(bad, by_items=True)
+    for target in payment_metadata[REGISTER]['reference_targets']:
+        if target['name'] == 'Справочник.Номенклатура':
+            target['partitions'] = [{'key': 'another', 'source': '_OtherArea'}]
+    with pytest.raises(ValidationError, match='Разделители'):
+        generate(payment_metadata, by_items=True)
+
+
+@pytest.mark.django_db
+def test_items_command_reads_goods_and_uses_separate_target(job, payment_metadata, tmp_path):
+    from transferdata.erp.control.models import ETLJob
+    command = 'transferdata.erp.control.management.commands.prepare_payment_schedule_report'
+    roots = {'objects': [payment_metadata[n] for n in (REGISTER, REGISTRY, RATES)]}
+    related = {'objects': [o for n, o in payment_metadata.items() if n not in (REGISTER, REGISTRY, RATES)]}
+    @contextmanager
+    def connect(*args, **kwargs): yield MagicMock()
+    with patch(command + '.read_metadata', side_effect=[roots, related, {'objects': [payment_metadata['Справочник.Валюты']]}]) as read, patch(command + '.connect', connect), patch(command + '.describe', return_value=[1]):
+        call_command('prepare_payment_schedule_report', connection=job.source_connection.name,
+                     target_connection=job.target_connection.name, output=str(tmp_path / 'items.sql'), by_items=True, create_job=True)
+    assert read.call_args_list[1].kwargs['include_table_parts'] is True
+    created = ETLJob.objects.get(target_table='PaymentScheduleItemsReport')
+    assert '[Номенклатура]' in created.sql_query and not created.schedule_enabled

@@ -17,14 +17,18 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--connection')
         parser.add_argument('--target-connection')
-        parser.add_argument('--output', default='.state/PaymentScheduleReport.sql')
+        parser.add_argument('--output')
+        parser.add_argument('--by-items', action='store_true', help='Allocate payments across supplier-order goods lines by their amounts.')
         parser.add_argument('--target-schema', default='erp_ai')
-        parser.add_argument('--target-table', default='PaymentScheduleReport')
-        parser.add_argument('--usd-resource', help='Exact stored management-amount resource; auto-detects СуммаУпр or СуммаПлатежаУпр when unambiguous.')
+        parser.add_argument('--target-table')
+        parser.add_argument('--usd-resource', help='Optional exact stored management-amount resource instead of currency-rate conversion.')
         parser.add_argument('--inspect', action='store_true', help='Read/report metadata only, without creating SQL or a job.')
         parser.add_argument('--create-job', action='store_true')
 
     def handle(self, *args, **options):
+        table = 'PaymentScheduleItemsReport' if options['by_items'] else 'PaymentScheduleReport'
+        options['target_table'] = options['target_table'] or table
+        options['output'] = options['output'] or f'.state/{table}.sql'
         source = self.pick(options['connection'], source=True)
         fingerprint = connection_fingerprint(source)
         output = Path(options['output']).resolve()
@@ -38,7 +42,7 @@ class Command(BaseCommand):
             objects = {obj['name']: obj for obj in roots['objects']}
             follow = set(concrete_references(objects[REGISTER], 'ЗаказПоставщику') + concrete_references(objects[REGISTER], 'Инвойс'))
             self.stdout.write('[2/3] Читаем заказ и инвойс…')
-            related = read_metadata(source, names=sorted(follow))
+            related = read_metadata(source, names=sorted(follow), include_table_parts=options['by_items'])
             objects.update({obj['name']: obj for obj in related['objects']})
             if not options['usd_resource']:
                 currencies = set()
@@ -60,7 +64,7 @@ class Command(BaseCommand):
                 self.stdout.write('Исходник и задания не изменялись.')
                 return
             self.stdout.write('[3/3] Формируем дневные обороты, статусы и USD по курсам на дату курса или платежа…')
-            sql = generate(objects, usd=True, usd_resource=options['usd_resource'])
+            sql = generate(objects, usd=True, usd_resource=options['usd_resource'], by_items=options['by_items'])
             with connect(source, timeout=1800) as database:
                 columns = describe(database, sql)
             source.refresh_from_db()
@@ -72,9 +76,9 @@ class Command(BaseCommand):
             job = None
             with transaction.atomic():
                 if target:
-                    job = ETLJob(name='График платежей · по дням · USD', source_connection=source, target_connection=target,
+                    job = ETLJob(name='График платежей · номенклатура · USD' if options['by_items'] else 'График платежей · по дням · USD', source_connection=source, target_connection=target,
                         source_type='SQL_QUERY', sql_query=sql, target_schema=options['target_schema'], target_table=options['target_table'],
-                        command_timeout=1800, schedule_enabled=False, description='Вся история и будущие платежи, дневные обороты. Сумма в валюте платежа и USD. По умолчанию кросс-курс через RUB с кратностью на ДатаКурса, при пустой дате — на дату платежа. При явном --usd-resource используется готовый ресурс. Фильтры СКД и права пользователей 1С не воспроизводятся SQL-учётной записью автоматически.')
+                        command_timeout=1800, schedule_enabled=False, description=('Детализация по товарным строкам заказа: доля по сумме строк, Сумма и USD распределены. ' if options['by_items'] else '') + 'Вся история и будущие платежи, дневные обороты. Сумма в валюте платежа и USD. По умолчанию кросс-курс через RUB с кратностью на ДатаКурса, при пустой дате — на дату платежа. При явном --usd-resource используется готовый ресурс. Фильтры СКД и права пользователей 1С не воспроизводятся SQL-учётной записью автоматически.')
                     job.full_clean(); job.save()
                     ETLAuditLog.objects.create(object_type='ETLJob', object_id=job.pk, action='create')
                 output.parent.mkdir(parents=True, exist_ok=True)
