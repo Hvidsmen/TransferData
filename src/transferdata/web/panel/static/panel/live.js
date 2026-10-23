@@ -37,6 +37,11 @@
         if (current.innerHTML === replacement.innerHTML) continue;
         const offsets = Array.from(current.querySelectorAll(".table-scroll, .table-responsive"))
           .map(node => [node.scrollLeft, node.scrollTop]);
+        const expanded = new Map(Array.from(current.querySelectorAll("details[id]"))
+          .map(node => [node.id, node.open]));
+        replacement.querySelectorAll("details[id]").forEach(node => {
+          if (expanded.has(node.id)) node.open = expanded.get(node.id);
+        });
         current.replaceWith(replacement);
         replacement.querySelectorAll(".table-scroll, .table-responsive").forEach((node, index) => {
           if (offsets[index]) [node.scrollLeft, node.scrollTop] = offsets[index];

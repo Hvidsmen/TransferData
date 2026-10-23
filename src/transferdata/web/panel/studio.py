@@ -32,7 +32,8 @@ def screen(request, template, **context):
 
 @staff_member_required(login_url="admin:login")
 def portal(request):
-    return screen(request, "portal.html", section="portal", subsystem=None, title="Портал ETL Dev")
+    from .portal_monitoring import overview
+    return screen(request, "portal.html", section="portal", subsystem=None, title="Портал ETL Dev", **overview(request))
 
 
 @staff_member_required(login_url="admin:login")
