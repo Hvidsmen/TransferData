@@ -11,6 +11,7 @@ from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.urls import reverse
 
 from .forms import JobForm
 from .models import Connection, Job, JobGroup, Run
@@ -156,8 +157,10 @@ def action(request, pk, operation):
         raise Http404
     if request.method == "POST":
         try:
-            _, created = enqueue(job, operation)
+            run, created = enqueue(job, operation)
             messages.success(request, "Действие поставлено в очередь." if created else "Для этого задания уже есть активная операция.")
+            if request.POST.get("open_result") == "yes":
+                return redirect("td_run", pk=run.pk)
             return redirect("td_history")
         except ValidationError as exc:
             messages.error(request, "Проверьте настройки задания: " + "; ".join(exc.messages))
@@ -168,5 +171,9 @@ def action(request, pk, operation):
 @staff_member_required(login_url="admin:login")
 @permission_required("panel.view_run", raise_exception=True)
 def run_detail(request, pk):
-    return screen(request, "run.html", section="history", title="Результат операции",
-                  run=get_object_or_404(Run.objects.select_related("job"), pk=pk))
+    run = get_object_or_404(Run.objects.select_related("job"), pk=pk)
+    active = Run.objects.filter(job=run.job, status__in=["queued", "running"]).first()
+    return screen(request, "run.html", section="history", title="Результат операции", run=run,
+                  retry_allowed=request.user.has_perm("panel.change_job") and not run.job.archived and not run.job.is_deleted,
+                  retry_url=reverse("td_action", args=[run.job_id, run.job.execution_action]),
+                  retry_td=True, active_run_url=reverse("td_run", args=[active.pk]) if active else "")

@@ -76,6 +76,8 @@ class Job(models.Model):
     timezone = models.CharField("Часовой пояс", max_length=100, default="Europe/Moscow")
     enabled = models.BooleanField("Включить расписание", default=False)
     batch_size = models.PositiveIntegerField("Строк в пакете", default=1000)
+    remove_nul_characters = models.BooleanField("Удалять нулевые символы U+0000 из текста", default=False,
+        help_text="Только при переносе в PostgreSQL: удаляет U+0000 в копируемых текстовых значениях. Источник не меняется. Число очищенных значений отображается в результате.")
     allow_empty = models.BooleanField("Разрешить очистку при пустом источнике", default=False)
     columns = models.JSONField("Соответствие столбцов", default=dict, blank=True,
                                help_text='JSON «источник»: «назначение». Пустой объект — все столбцы с исходными именами.')
@@ -140,6 +142,7 @@ class Job(models.Model):
             "procedure_timeout": self.procedure_timeout,
             "target_schema": self.target_schema, "target_table": self.target_table,
             "cron": self.cron, "batch_size": self.batch_size, "allow_empty": self.allow_empty,
+            "remove_nul_characters": self.remove_nul_characters,
             **({"columns": self.columns} if self.columns else {}),
         }]})
         return config

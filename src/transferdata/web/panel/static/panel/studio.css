@@ -133,3 +133,5 @@ body{font-size:14px}.brand small{white-space:nowrap;font-size:7px;letter-spacing
 @media(min-width:1250px) and (max-width:1499px){.portal-task-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:1000px){.portal-task-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:480px){.portal-task-grid{grid-template-columns:1fr}.portal-monitor-group{padding:0 14px 14px}.portal-monitor-filters .search{min-width:100%}.portal-task h4{min-height:0}}
+
+.run-retry{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}.run-retry form{margin:0}.run-retry .field-help{font-size:10px;max-width:230px}.run-retry .btn svg{height:15px;width:15px}

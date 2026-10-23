@@ -1,7 +1,7 @@
 document.addEventListener("DOMContentLoaded", () => {
   const type = document.getElementById("id_job_type");
   if (!type) return;
-  const table = ["source_schema", "source_table", "target_schema", "target_table", "batch_size", "allow_empty", "columns"];
+  const table = ["source_schema", "source_table", "target_schema", "target_table", "batch_size", "allow_empty", "remove_nul_characters", "columns"];
   const procedure = ["procedure_schema", "procedure_name", "procedure_parameters", "procedure_timeout"];
   function update() {
     const isProcedure = type.value === "procedure";

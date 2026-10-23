@@ -7,6 +7,7 @@ from django.core.paginator import Paginator
 from django.db.models import Q, OuterRef, Subquery
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.urls import reverse
 from django.conf import settings
 from django.views.decorators.http import require_POST
 from transferdata.web.maintenance import is_paused
@@ -122,4 +123,8 @@ def history(request):
 @permission_required('python_jobs.view_run', raise_exception=True)
 def detail(request, pk):
     run = get_object_or_404(Run.objects.select_related('job'), pk=pk)
-    return screen(request, 'run.html', title=run.job.name, section='history', run=run)
+    active = Run.objects.filter(job=run.job, status__in=['queued', 'running']).first()
+    return screen(request, 'run.html', title=run.job.name, section='history', run=run,
+                  retry_allowed=request.user.has_perm('python_jobs.change_job') and not run.job.archived and not run.job.is_deleted,
+                  retry_url=reverse('python_jobs:execute', args=[run.job_id]),
+                  active_run_url=reverse('python_jobs:run', args=[active.pk]) if active else '')

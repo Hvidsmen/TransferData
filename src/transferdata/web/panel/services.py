@@ -138,6 +138,9 @@ def execute_next():
             result = transfer(source, target, job)
             run.rows = result.rows
             run.message = "Полная загрузка завершена."
+            if getattr(result, "cleaned_values", 0):
+                run.details["text_cleanup"] = {"values": result.cleaned_values, "characters": result.removed_characters}
+                run.message += f" Удалено нулевых символов: {result.removed_characters}; очищено значений: {result.cleaned_values}."
         elif run.action not in {"check", "inspect", "execute"}:
             raise ValueError("Unknown action")
         run.status = "success"

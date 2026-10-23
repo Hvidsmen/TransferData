@@ -11,6 +11,8 @@ from .transfer_errors import TransferDataError, diagnostic, validate_postgres_te
 class TransferResult:
     rows: int
     seconds: float
+    cleaned_values: int = 0
+    removed_characters: int = 0
 
 
 def transfer(
@@ -24,6 +26,12 @@ def transfer(
     implicitly commits and would break the rollback guarantee.
     """
     started = monotonic()
+    remove_nul = job.get("remove_nul_characters", False)
+    if type(remove_nul) is not bool:
+        raise ValueError("remove_nul_characters must be boolean")
+    if remove_nul and target_engine.dialect.name != "postgresql":
+        raise ValueError("remove_nul_characters supports PostgreSQL only")
+    cleaned_values = removed_characters = 0
     batch_size = job.get("batch_size", 1000)
     if type(batch_size) is not int or batch_size < 1:
         raise ValueError("batch_size must be a positive integer")
@@ -61,7 +69,9 @@ def transfer(
             while batch:
                 payload = [dict(zip(mapping.values(), row)) for row in batch]
                 if target.dialect.name == "postgresql":
-                    validate_postgres_text(payload, target_table, copied + 1)
+                    cleaned, removed = validate_postgres_text(payload, target_table, copied + 1, remove_nul=remove_nul)
+                    cleaned_values += cleaned
+                    removed_characters += removed
                 try:
                     target.execute(target_table.insert(), payload)
                 except DBAPIError as exc:
@@ -82,4 +92,4 @@ def transfer(
         actual = target.scalar(select(func.count()).select_from(target_table))
         if actual != copied:
             raise RuntimeError(f"Target count mismatch: expected {copied}, got {actual}")
-    return TransferResult(copied, monotonic() - started)
+    return TransferResult(copied, monotonic() - started, cleaned_values, removed_characters)

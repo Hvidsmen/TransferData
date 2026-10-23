@@ -96,6 +96,10 @@ def validate(config):
         names.add(job["name"])
         if type(job.get("batch_size", 1000)) is not int or job.get("batch_size", 1000) < 1:
             raise ValueError("batch_size must be a positive integer")
+        if type(job.get("remove_nul_characters", False)) is not bool:
+            raise ValueError("remove_nul_characters must be boolean")
+        if job.get("remove_nul_characters") and config["target"].get("dialect", "oracle") != "postgresql":
+            raise ValueError("remove_nul_characters supports PostgreSQL only")
         if type(job.get("allow_empty", False)) is not bool:
             raise ValueError("allow_empty must be boolean")
         if "columns" in job and (

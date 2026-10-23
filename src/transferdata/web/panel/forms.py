@@ -29,7 +29,7 @@ class JobForm(forms.ModelForm):
             args = (data, *args[1:])
         super().__init__(*args, **kwargs)
         kind = self.data.get("job_type", self.instance.job_type) if self.is_bound else self.instance.job_type
-        transfer_fields = ("source_schema", "source_table", "target_schema", "target_table", "batch_size", "allow_empty", "columns")
+        transfer_fields = ("source_schema", "source_table", "target_schema", "target_table", "batch_size", "allow_empty", "remove_nul_characters", "columns")
         procedure_fields = ("procedure_schema", "procedure_name", "procedure_parameters", "procedure_timeout")
         if self.is_bound:
             for name in transfer_fields if kind == "procedure" else procedure_fields:

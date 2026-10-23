@@ -11,6 +11,7 @@ from django.db.models.functions import TruncDate
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 from .models import DatabaseConnection, ETLJob, ETLExecution, ETLAuditLog
 from .forms import ConnectionForm, JobForm
@@ -115,6 +116,10 @@ def job_run(request, pk):
     try:
         execution = enqueue(job, request.user)
     except ValidationError as exc:
+        active = ETLExecution.objects.filter(job=job, status__in=['PENDING', 'RUNNING']).first()
+        if active:
+            messages.info(request, 'У задания уже есть активный запуск.')
+            return redirect('erp:execution_detail', pk=active.pk)
         messages.error(request, ' '.join(exc.messages))
         return redirect('erp:job_detail', pk=pk)
     return redirect('erp:execution_detail', pk=execution.pk)
@@ -157,7 +162,11 @@ def executions(request):
 def execution_detail(request, pk):
     execution = get_object_or_404(ETLExecution.objects.select_related('job'), pk=pk)
     template = 'erp/control/progress.html' if request.headers.get('HX-Request') == 'true' else 'erp/control/execution.html'
-    return render(request, template, {'execution': execution, 'logs': execution.logs.order_by('-timestamp', '-pk')[:100]})
+    active = ETLExecution.objects.filter(job=execution.job, status__in=['PENDING', 'RUNNING']).first()
+    return render(request, template, {'execution': execution, 'logs': execution.logs.order_by('-timestamp', '-pk')[:100],
+        'retry_allowed': request.user.is_superuser and execution.job.is_active and not execution.job.archived and not execution.job.is_deleted,
+        'retry_url': reverse('erp:job_run', args=[execution.job_id]),
+        'active_run_url': reverse('erp:execution_detail', args=[active.pk]) if active else ''})
 
 
 @administrator

@@ -40,13 +40,21 @@ def diagnostic(exc):
     return f'{explanation} SQLSTATE: {state}.', {'sqlstate': state}
 
 
-def validate_postgres_text(payload, target_table, row_start):
+def validate_postgres_text(payload, target_table, row_start, remove_nul=False):
+    cleaned_values = removed_characters = 0
     text_names = {c.name for c in target_table.columns if isinstance(c.type, String)}
     for offset, row in enumerate(payload):
         for name in text_names:
             value = row.get(name)
             if isinstance(value, str) and '\x00' in value:
+                if remove_nul:
+                    cleaned_values += 1
+                    removed_characters += value.count('\x00')
+                    row[name] = value.replace('\x00', '')
+                    continue
                 raise TransferDataError(
                     f'Столбец «{name}»: обнаружен нулевой символ U+0000. PostgreSQL не принимает его в текстовых полях. '
-                    'Нужно явно согласовать очистку текста в источнике; значения автоматически не изменялись.',
+                    'В настройках задания можно включить «Удалять нулевые символы U+0000 из текста». Значения автоматически не изменялись.',
                     kind='nul_character', column=name, row_number=row_start + offset)
+
+    return cleaned_values, removed_characters

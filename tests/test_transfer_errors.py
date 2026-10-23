@@ -47,3 +47,11 @@ def test_worker_persists_safe_diagnostic_for_run(monkeypatch):
     assert run.status == 'failed' and run.details['error']['sqlstate'] == '22001'
     assert 'не помещается' in run.message and 'не сохранены' in run.message
     assert source.dispose.called and target.dispose.called
+
+
+def test_explicit_nul_cleanup_preserves_other_text_binary_and_nulls():
+    table = Table('test', MetaData(), Column('Описание', String), Column('binary', LargeBinary))
+    payload = [{'Описание': 'А\x00\x00Б', 'binary': b'\x00'}, {'Описание': '\x00'}, {'Описание': None}, {'Описание': 'Текст\nс переносом'}]
+    values, characters = validate_postgres_text(payload, table, 1, remove_nul=True)
+    assert (values, characters) == (2, 3)
+    assert payload == [{'Описание': 'АБ', 'binary': b'\x00'}, {'Описание': ''}, {'Описание': None}, {'Описание': 'Текст\nс переносом'}]
