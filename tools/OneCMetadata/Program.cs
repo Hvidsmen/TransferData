@@ -87,7 +87,7 @@ try
                 }
                 return names.Distinct().ToArray();
             }
-            var properties = entity.Properties.Select(property => new
+            object ReadProperty(PropertyDefinition property) => new
             {
                 name = property.Name, type = property.Type.ToString(),
                 is_measure = property.Purpose.IsMeasure(), is_dimension = property.Purpose.IsDimension(),
@@ -97,12 +97,18 @@ try
                     row_version = column.IsGenerated && column.Name == "_Version",
                     is_date = column.Type.IsDateTime && !column.Type.IsUnion
                 }).ToArray()
+            };
+            var properties = entity.Properties.Select(ReadProperty).ToArray();
+            var parts = entity.Entities.Select(part => {
+                if (!request.IncludeTableParts) return (object)new { name = part.Name, table = part.DbName };
+                return (object)new { name = part.Name, table = part.DbName,
+                    properties = part.Properties.Select(ReadProperty).ToArray(), partitions = Partitions(part) };
             }).ToArray();
             return new { protocol = 1, ok = true,
                 configuration = config.Name, version = config.AppConfigVersion, year_offset = config.YearOffset,
                 name = objectName, table = entity.DbName, properties,
                 reference_version = 1, reference_targets = targets.Values.ToArray(), partitions = Partitions(entity),
-                table_parts = entity.Entities.Select(part => new { name = part.Name, table = part.DbName }).ToArray() };
+                table_parts = parts };
         }
         if (request.Action == "objects")
         {
@@ -130,6 +136,7 @@ static object[] Partitions(EntityDefinition entity) => entity.Properties
 
 sealed class Request
 {
+    public bool IncludeTableParts { get; set; }
     public string Action { get; set; } = "catalog";
     public string Server { get; set; } = "";
     public int Port { get; set; } = 1433;
