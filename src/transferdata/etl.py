@@ -3,6 +3,8 @@ from time import monotonic
 
 from sqlalchemy import MetaData, Table, func, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import DBAPIError
+from .transfer_errors import TransferDataError, diagnostic, validate_postgres_text
 
 
 @dataclass(frozen=True)
@@ -58,7 +60,23 @@ def transfer(
             copied = 0
             while batch:
                 payload = [dict(zip(mapping.values(), row)) for row in batch]
-                target.execute(target_table.insert(), payload)
+                if target.dialect.name == "postgresql":
+                    validate_postgres_text(payload, target_table, copied + 1)
+                try:
+                    target.execute(target_table.insert(), payload)
+                except DBAPIError as exc:
+                    result = diagnostic(exc)
+                    if result is None:
+                        raise
+                    message, details = result
+                    column = getattr(getattr(exc.orig, "diag", None), "column_name", None)
+                    if column in target_table.c.keys():
+                        details["column"] = column
+                        message = f"Столбец «{column}»: " + message
+                    raise TransferDataError(
+                        "Запись пакета в назначение: " + message,
+                        **details, batch_first=copied + 1, batch_last=copied + len(batch), phase="target_insert",
+                    ) from None
                 copied += len(batch)
                 batch = rows.fetchmany(batch_size)
         actual = target.scalar(select(func.count()).select_from(target_table))

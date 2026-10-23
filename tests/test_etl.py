@@ -159,3 +159,23 @@ def test_windows_auth_does_not_request_sql_password(monkeypatch, trust, sslmode)
 def test_unencrypted_postgres_mode_is_rejected():
     with pytest.raises(ValueError, match="target.sslmode"):
         validate({"target": {"sslmode": "disable"}})
+
+
+def test_diagnostic_failure_after_batch_preserves_old_target(tables):
+    from sqlalchemy import event
+    from sqlalchemy.exc import DataError
+    from transferdata.transfer_errors import TransferDataError
+    src, dst, a, b = tables
+    with src.begin() as conn:
+        conn.execute(a.insert(), [{'id': 1, 'name': 'valid'}, {'id': 2, 'name': 'private-value'}])
+    class DriverError(Exception):
+        sqlstate = '22003'
+    def fail_second_insert(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith('INSERT') and parameters[0] == 2:
+            raise DataError(statement, parameters, DriverError('private-value password=secret'))
+    event.listen(dst, 'before_cursor_execute', fail_second_insert)
+    with pytest.raises(TransferDataError) as caught:
+        transfer(src, dst, job())
+    assert caught.value.details['batch_first'] == 2 and caught.value.details['batch_last'] == 2
+    assert '22003' in str(caught.value) and 'secret' not in str(caught.value)
+    assert contents(dst, b) == [(99, 'old')]

@@ -9,6 +9,7 @@ from sqlalchemy import inspect, text
 from transferdata.cli import engines, source_engine
 from transferdata.procedures import execute_procedure, ProcedureReturnCodeError
 from transferdata.etl import transfer
+from transferdata.transfer_errors import diagnostic
 from transferdata.schema import prepare_target, default_column_mapping
 from .models import Job, Run
 from transferdata.web.maintenance import is_paused
@@ -149,6 +150,11 @@ def execute_next():
         if run.details.get("steps"):
             run.details["steps"][-1]["status"] = "failed"
         run.message = f"{stage}: ошибка {type(exc).__name__}. Проверьте подключения, права, имена и типы столбцов."
+        diagnosis = diagnostic(exc) if run.action == "run" else None
+        if diagnosis:
+            explanation, details = diagnosis
+            run.details["error"] = details
+            run.message = f"{stage}: {explanation} Загрузка отменена; изменения этой попытки не сохранены."
         if isinstance(exc, ProcedureReturnCodeError):
             run.details["return_code"] = exc.code
             run.message = f"Процедура не завершилась успешно. Код возврата: {exc.code if exc.code is not None else 'не получен'}."
