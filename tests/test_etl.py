@@ -179,3 +179,17 @@ def test_diagnostic_failure_after_batch_preserves_old_target(tables):
     assert caught.value.details['batch_first'] == 2 and caught.value.details['batch_last'] == 2
     assert '22003' in str(caught.value) and 'secret' not in str(caught.value)
     assert contents(dst, b) == [(99, 'old')]
+
+
+def test_progress_counts_do_not_publish_uncommitted_data(tables):
+    src, dst, source, target = tables
+    with src.begin() as conn:
+        conn.execute(source.insert(), [{"id": 1, "name": "First"}, {"id": 2, "name": "Second"}])
+    observations = []
+    def progress(count, phase):
+        observations.append((count, phase))
+        assert contents(dst, target) == [(99, "old")]
+    result = transfer(src, dst, job(), progress=progress)
+    assert result.rows == 2
+    assert [count for count, _ in observations] == [0, 1, 2, 2]
+    assert contents(dst, target) == [(1, "First"), (2, "Second")]

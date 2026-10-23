@@ -90,7 +90,9 @@ def jobs(request):
         records = records.filter(group_id=int(group))
     if query:
         records = records.filter(Q(name__icontains=query) | Q(source_table__icontains=query) | Q(target_table__icontains=query) | Q(procedure_name__icontains=query))
-    page, sections, _ = group_jobs(records, request.GET.get("page"))
+    page, sections, current = group_jobs(records, request.GET.get("page"))
+    from .operations import attach_job_facts
+    attach_job_facts(current, "transferdata", request.user)
     return screen(request, "jobs.html", section="jobs", title="Задания", query=query, group=group, state=state,
                   groups=JobGroup.objects.all(),
                   page=page, job_sections=sections)

@@ -44,6 +44,8 @@ def attach_last(jobs):
 @permission_required('python_jobs.view_job', raise_exception=True)
 def overview(request):
     jobs = attach_last(list(records().filter(archived=False).order_by('name')))
+    from transferdata.web.panel.operations import attach_job_facts
+    attach_job_facts(jobs, 'python', request.user)
     return screen(request, 'overview.html', title='Обзор', section='overview', jobs=jobs,
                   counts={'jobs': len(jobs), 'running': Run.objects.filter(status='running').count(),
                           'queued': Run.objects.filter(status='queued').count(),
@@ -65,6 +67,8 @@ def jobs(request):
         items = items.filter(group_id=int(group))
     page, sections, current = group_jobs(items, request.GET.get('page'))
     attach_last(current)
+    from transferdata.web.panel.operations import attach_job_facts
+    attach_job_facts(current, "python", request.user)
     return screen(request, 'jobs.html', title='Задания', section='jobs', job_sections=sections, groups=JobGroup.objects.all(),
                   query=query, group=group, state=state, page=page)
 

@@ -1,4 +1,4 @@
 {% if job.pk and not job.is_deleted %}{% if subsystem == 'erp' and user.is_superuser or subsystem == 'python' and perms.python_jobs.delete_job or subsystem == 'transferdata' and perms.panel.delete_job %}
-<form class="job-delete-form" method="post" action="{% if subsystem == 'erp' %}{% url 'erp:job_bulk' %}{% elif subsystem == 'python' %}{% url 'python_jobs:bulk' %}{% else %}{% url 'td_bulk' %}{% endif %}">
+{% if not plain %}<details class="job-danger-menu"><summary>Другие действия</summary>{% endif %}<form class="job-delete-form" method="post" action="{% if subsystem == 'erp' %}{% url 'erp:job_bulk' %}{% elif subsystem == 'python' %}{% url 'python_jobs:bulk' %}{% else %}{% url 'td_bulk' %}{% endif %}">
 {% csrf_token %}<input type="hidden" name="operation" value="delete"><input type="hidden" name="selected" value="{{ job.pk }}"><button class="btn delete-job small" type="submit" aria-label="Удалить задание {{ job.name }}">Удалить</button>
-</form>{% endif %}{% endif %}
+</form>{% if not plain %}</details>{% endif %}{% endif %}{% endif %}

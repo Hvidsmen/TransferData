@@ -99,6 +99,8 @@ def jobs(request):
     latest = ETLExecution.objects.filter(job=OuterRef('pk')).order_by('-created_at')
     items = items.annotate(last_status=Subquery(latest.values('status')[:1]), last_duration=Subquery(latest.values('duration_seconds')[:1]), last_rows=Subquery(latest.values('rows_loaded')[:1]), last_started=Subquery(latest.values('created_at')[:1]))
     page, sections, jobs_on_page = group_jobs(items, request.GET.get('page'))
+    from transferdata.web.panel.operations import attach_job_facts
+    attach_job_facts(jobs_on_page, "erp", request.user)
     return render(request, 'erp/control/jobs.html', {'items': jobs_on_page, 'job_sections': sections, 'page': page, 'group': group, 'state': state,
         'groups': JobGroup.objects.all()})
 

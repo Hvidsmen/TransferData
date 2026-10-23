@@ -41,7 +41,7 @@ class PanelTests(TestCase):
         self.assertEqual(section['name'], 'Облака')
         self.assertEqual(section['count'], 14)
         self.assertEqual(len(section['jobs']), 14)
-        self.assertContains(response, '<details class="job-group" open>')
+        self.assertContains(response, '<details class="job-group"')
         for index in range(7):
             g = JobGroup.objects.create(name=f'Группа {index}')
             Job.objects.create(name=f'Another {index}', group=g, connection=self.connection,

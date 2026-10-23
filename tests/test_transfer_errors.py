@@ -39,7 +39,7 @@ def test_worker_persists_safe_diagnostic_for_run(monkeypatch):
     run, _ = services.enqueue(job, 'run')
     source, target = MagicMock(), MagicMock()
     monkeypatch.setattr(services, 'engines', lambda config: (source, target))
-    def fail(*args):
+    def fail(*args, **kwargs):
         raise TransferDataError('Значение не помещается в длину столбца назначения.', sqlstate='22001', batch_first=1001, batch_last=2000)
     monkeypatch.setattr(services, 'transfer', fail)
     services.execute_next()

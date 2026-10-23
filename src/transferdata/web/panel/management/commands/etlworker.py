@@ -7,6 +7,7 @@ from transferdata.cli import instance_lock
 from transferdata.web.panel.models import Run
 from transferdata.web.panel.services import execute_next, schedule_due
 from transferdata.web.maintenance import worker_paused
+from transferdata.web.panel.operations import worker_heartbeat
 
 
 class Command(BaseCommand):
@@ -16,7 +17,7 @@ class Command(BaseCommand):
         parser.add_argument("--once", action="store_true", help="One scheduling/queue cycle, for diagnosis")
 
     def handle(self, *args, **options):
-        with instance_lock(settings.STATE_DIR):
+        with instance_lock(settings.STATE_DIR), worker_heartbeat("sql"):
             # We own the sole worker lock. A previous process may have died
             # after committing external data but before updating the history.
             Run.objects.filter(status="running").update(status="interrupted", finished_at=timezone.now(),

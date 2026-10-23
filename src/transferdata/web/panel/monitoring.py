@@ -3,6 +3,7 @@ from django.db.models import OuterRef, Subquery
 from django.urls import reverse
 
 from .models import Job, Run
+from .operations import annotate_success, add_facts
 
 STATUS_LABELS = {'queued': 'В очереди', 'running': 'Выполняется', 'success': 'Успешно',
                  'failed': 'Ошибка', 'interrupted': 'Прерван', 'cancelled': 'Отменён',
@@ -14,12 +15,15 @@ def annotate_latest(jobs, executions, fields):
     return jobs.annotate(**{f'monitor_{name}': Subquery(latest.values(field)[:1]) for name, field in fields.items()})
 
 
-def transferdata_jobs(user):
+def transferdata_jobs(user, ids=None):
     if not user.has_perm('panel.view_job'):
         return []
     jobs = Job.objects.filter(is_deleted=False).select_related('group').order_by('group__name', 'name', 'pk')
+    if ids is not None:
+        jobs = jobs.filter(pk__in=ids)
     can_view_runs = user.has_perm('panel.view_run')
     if can_view_runs:
+        jobs = annotate_success(jobs, Run.objects.filter(action__in=["run", "execute"]), "success")
         jobs = annotate_latest(jobs, Run.objects.filter(action__in=['run', 'execute']),
             {'id': 'pk', 'status': 'status', 'created': 'created_at', 'started': 'started_at', 'rows': 'rows', 'seconds': 'seconds'})
     result = []
@@ -33,12 +37,18 @@ def transferdata_jobs(user):
             'started': (job.monitor_started or job.monitor_created) if can_view_runs else None,
             'rows': job.monitor_rows if can_view_runs else None,
             'seconds': job.monitor_seconds if can_view_runs else None})
+        add_facts(result[-1], job, 'transferdata', can_view_runs)
     return result
 
 
-def erp_jobs():
+def erp_jobs(ids=None):
     from transferdata.erp.control.models import ETLJob, ETLExecution
     jobs = ETLJob.objects.filter(is_deleted=False).select_related('group').order_by('group__name', 'name', 'pk')
+    if ids is not None:
+        jobs = jobs.filter(pk__in=ids)
+    from django.utils import timezone
+    consumed = set(ETLExecution.objects.filter(schedule_key__endswith=':' + timezone.localdate().isoformat()).values_list('job_id', flat=True))
+    jobs = annotate_success(jobs, ETLExecution.objects.all(), 'SUCCESS')
     jobs = annotate_latest(jobs, ETLExecution.objects.all(),
         {'id': 'pk', 'status': 'status', 'created': 'created_at', 'started': 'started_at',
          'rows': 'rows_loaded', 'seconds': 'duration_seconds'})
@@ -51,4 +61,5 @@ def erp_jobs():
             'status': status, 'label': STATUS_LABELS[status], 'url': reverse('erp:job_detail', args=[job.pk]),
             'run_url': reverse('erp:execution_detail', args=[job.monitor_id]) if job.monitor_id else '',
             'started': job.monitor_started or job.monitor_created, 'rows': job.monitor_rows, 'seconds': job.monitor_seconds})
+        add_facts(result[-1], job, 'erp', consumed=job.pk in consumed)
     return result

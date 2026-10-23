@@ -70,6 +70,19 @@ def execute_next():
     source = target = None
     stage = "Подключение к базам"
 
+    last_progress = 0
+    def progress(count, label):
+        nonlocal last_progress
+        now = monotonic()
+        if now - last_progress < 1 and label.startswith('Запись'):
+            return
+        last_progress = now
+        from django.db import DatabaseError
+        try:
+            Run.objects.filter(pk=run.pk, status='running').update(rows=count, message=label)
+        except DatabaseError:
+            pass  # Progress telemetry must not interrupt a data transaction.
+
     def preparation_step(label):
         if run.action != "prepare":
             return
@@ -135,7 +148,7 @@ def execute_next():
             run.message = "Подключения проверены, структура получена, столбцы задания заполнены. " + ("Таблица создана." if created else "Таблица уже существует, изменений нет.")
         elif run.action == "run":
             stage = "Перенос данных"
-            result = transfer(source, target, job)
+            result = transfer(source, target, job, progress=progress)
             run.rows = result.rows
             run.message = "Полная загрузка завершена."
             if getattr(result, "cleaned_values", 0):

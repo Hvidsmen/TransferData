@@ -19,6 +19,7 @@ def transfer(
     source_engine: Engine,
     target_engine: Engine,
     job: dict,
+    *, progress=None,
 ) -> TransferResult:
     """Replace target rows atomically, streaming source rows in bounded batches.
 
@@ -26,6 +27,8 @@ def transfer(
     implicitly commits and would break the rollback guarantee.
     """
     started = monotonic()
+    if progress:
+        progress(0, "Подключение и проверка структуры")
     remove_nul = job.get("remove_nul_characters", False)
     if type(remove_nul) is not bool:
         raise ValueError("remove_nul_characters must be boolean")
@@ -88,7 +91,11 @@ def transfer(
                         **details, batch_first=copied + 1, batch_last=copied + len(batch), phase="target_insert",
                     ) from None
                 copied += len(batch)
+                if progress:
+                    progress(copied, "Запись в транзакции · данные ещё не опубликованы")
                 batch = rows.fetchmany(batch_size)
+        if progress:
+            progress(copied, "Проверка числа строк и публикация")
         actual = target.scalar(select(func.count()).select_from(target_table))
         if actual != copied:
             raise RuntimeError(f"Target count mismatch: expected {copied}, got {actual}")

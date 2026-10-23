@@ -1,0 +1,3 @@
+<section id="worker-health" data-live class="health-strip" aria-label="Состояние обработчиков">
+{% for worker in health %}<div class="health-item {{ worker.state }}"><span class="health-dot" aria-hidden="true"></span><div><strong>{{ worker.name }}</strong><span>{{ worker.label }}</span></div><details id="health-help-{{ worker.key }}"><summary aria-label="Подробнее об обработчике {{ worker.name }}">?</summary><p>{{ worker.hint }}{% if worker.heartbeat %}<br>Последний сигнал: {{ worker.heartbeat|date:'d.m H:i:s' }}{% endif %}</p></details></div>{% endfor %}
+</section>

@@ -51,7 +51,7 @@
       document.dispatchEvent(new Event("etl:live-updated"));
       status("● Автообновление · каждые 3 секунды");
     } catch (_) {
-      status("Нет связи с порталом. Повторяем подключение…");
+      status("Нет связи с порталом. Показаны последние полученные данные. Повторяем подключение…");
     } finally {
       clearTimeout(timeout);
       busy = false;
