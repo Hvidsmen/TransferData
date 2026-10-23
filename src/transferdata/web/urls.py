@@ -7,6 +7,7 @@ urlpatterns = [
     path("", studio.portal, name="etl_portal"),
     path("transferdata/", studio.overview, name="td_overview"),
     path("erp/", include("transferdata.erp.urls")),
+    path("python/", include("transferdata.python_jobs.urls")),
     path("runs/", studio.history, name="td_history"),
     path("runs/<int:pk>/", studio.run_detail, name="td_run"),
     path("jobs/", studio.jobs, name="td_jobs"),

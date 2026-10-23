@@ -59,7 +59,13 @@ LABELS = {"group": "Назначить группу", "restart": "Запусти
 @require_POST
 def bulk(request, subsystem="transferdata"):
     erp = subsystem == "erp"
-    if erp:
+    python = subsystem == "python"
+    if python:
+        from transferdata.python_jobs.models import Job as PythonJob, Run as PythonRun
+        from transferdata.python_jobs.services import enqueue
+        model, execution = PythonJob, PythonRun
+        listing = "python_jobs:jobs"
+    elif erp:
         from transferdata.erp.control.models import ETLJob, ETLExecution
         from transferdata.erp.control.services import enqueue
         model, execution = ETLJob, ETLExecution
@@ -72,7 +78,7 @@ def bulk(request, subsystem="transferdata"):
     if operation not in LABELS:
         return HttpResponseBadRequest("Unknown operation")
     permission = "delete" if operation == "delete" else "change"
-    if (erp and not request.user.is_superuser) or (not erp and not request.user.has_perm(f"panel.{permission}_job")):
+    if (erp and not request.user.is_superuser) or (not erp and not request.user.has_perm(f"{'python_jobs' if python else 'panel'}.{permission}_job")):
         raise PermissionDenied
     try:
         ids = list({int(value) for value in request.POST.getlist("selected")})

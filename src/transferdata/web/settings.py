@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
     "django.contrib.humanize", "transferdata.web.panel",
-    "transferdata.erp.control.apps.ERPConfig",
+    "transferdata.erp.control.apps.ERPConfig", "transferdata.python_jobs.apps.PythonJobsConfig",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

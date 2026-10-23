@@ -48,8 +48,10 @@ try {
     if (-not $TaskName.Count) {
         $dash = [char]0x2014
         $TaskName = @("ETL Dev $dash Web", "ETL Dev $dash TransferData", "ETL Dev $dash ERP")
+        $pythonTask = Get-ScheduledTask -TaskName "ETL Dev $dash Python" -TaskPath $TaskPath -ErrorAction SilentlyContinue
+        if ($pythonTask) { $TaskName += $pythonTask.TaskName }
     }
-    if ($TaskName.Count -ne 3) { throw "Specify exactly three task names: web, TransferData, ERP." }
+    if ($TaskName.Count -lt 3 -or $TaskName.Count -gt 4) { throw "Specify web, TransferData, ERP and optionally Python task names." }
     $tasks = @($TaskName | ForEach-Object { Get-ScheduledTask -TaskName $_ -TaskPath $TaskPath -ErrorAction Stop })
     $scheduler = New-Object -ComObject Schedule.Service
     $scheduler.Connect()
@@ -63,11 +65,14 @@ try {
         $arguments = ($task.Actions | ForEach-Object { $_.Arguments }) -join " "
         if ($arguments.IndexOf($projectRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
             $arguments -notmatch 'Start-Panel\.ps1' -or
-            $arguments -notmatch '-Mode\s+["'']?(erp-worker|worker|web)\b') {
+            $arguments -notmatch '-Mode\s+["'']?(python-worker|erp-worker|worker|web)\b') {
             throw "Task '$($task.TaskName)' does not launch Start-Panel.ps1 from this project."
         }
         if ($modes.ContainsKey($Matches[1])) { throw "Duplicate task mode: $($Matches[1])." }
         $modes[$Matches[1]] = $task.TaskName
+    }
+    foreach ($required in @("web", "worker", "erp-worker")) {
+        if (-not $modes.ContainsKey($required)) { throw "Required task mode is missing: $required." }
     }
     $branch = (& git branch --show-current).Trim()
     if ($LASTEXITCODE -ne 0 -or $branch -ne "main") { throw "Update must run from the main branch." }
@@ -85,7 +90,7 @@ try {
     # These checks deliberately do not print process environment or credential files.
     Invoke-Checked $python @("-c", "import transferdata.web.maintenance")
     New-Item -ItemType Directory -Force $state | Out-Null
-    Remove-Item (Join-Path $state "paused-transferdata"), (Join-Path $state "paused-erp") -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $state "paused-transferdata"), (Join-Path $state "paused-erp"), (Join-Path $state "paused-python") -ErrorAction SilentlyContinue
     New-Item -ItemType File $flag -ErrorAction Stop | Out-Null
     $flagCreated = $true
     foreach ($task in $tasks) {
@@ -98,8 +103,8 @@ try {
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     do {
         $ready = $true
-        foreach ($pair in @(@("worker", "transferdata"), @("erp-worker", "erp"))) {
-            if ((Test-TaskRunning $modes[$pair[0]]) -and -not (Test-Path (Join-Path $state ("paused-" + $pair[1])))) { $ready = $false }
+        foreach ($pair in @(@("worker", "transferdata"), @("erp-worker", "erp"), @("python-worker", "python"))) {
+            if ($modes.ContainsKey($pair[0]) -and (Test-TaskRunning $modes[$pair[0]]) -and -not (Test-Path (Join-Path $state ("paused-" + $pair[1])))) { $ready = $false }
         }
         if ($ready) { break }
         if ((Get-Date) -gt $deadline) { throw "Workers did not acknowledge pause in time. Existing workers may need a one-time restart to load maintenance support." }
@@ -126,7 +131,7 @@ try {
     }
     Set-Acl -LiteralPath $backup -AclObject $acl
     Copy-Item -LiteralPath $state -Destination (Join-Path $backup "state") -Recurse
-    foreach ($transient in @("maintenance.flag", "paused-transferdata", "paused-erp")) {
+    foreach ($transient in @("maintenance.flag", "paused-transferdata", "paused-erp", "paused-python")) {
         Remove-Item -LiteralPath (Join-Path (Join-Path $backup "state") $transient) -ErrorAction SilentlyContinue
     }
     if (Test-Path "config.json") { Copy-Item -LiteralPath "config.json" -Destination $backup }

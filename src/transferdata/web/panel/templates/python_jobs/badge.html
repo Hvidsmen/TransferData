@@ -1,0 +1,1 @@
+<span class="badge {% if run.status == 'success' %}success{% elif run.status == 'failed' or run.status == 'interrupted' %}failed{% elif run.status == 'running' %}running{% endif %}"><i></i>{{ run.get_status_display }}</span>
