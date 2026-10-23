@@ -8,7 +8,7 @@ from transferdata.erp.control.onec import read_metadata, connection_fingerprint
 from transferdata.erp.engine.connections import connect
 from transferdata.erp.engine.extractor import metadata as describe
 from transferdata.erp.engine.exceptions import ETLError
-from transferdata.erp.reports.payment_schedule import REGISTER, REGISTRY, concrete_references, generate
+from transferdata.erp.reports.payment_schedule import REGISTER, REGISTRY, RATES, concrete_references, generate
 
 
 class Command(BaseCommand):
@@ -34,12 +34,18 @@ class Command(BaseCommand):
             raise CommandError('--create-job нельзя совмещать с --inspect.')
         try:
             self.stdout.write('[1/3] Читаем регистр графиков и табличные части реестра платежей…')
-            roots = read_metadata(source, names=[REGISTER, REGISTRY], include_table_parts=True)
+            roots = read_metadata(source, names=[REGISTER, REGISTRY] + ([] if options['usd_resource'] else [RATES]), include_table_parts=True)
             objects = {obj['name']: obj for obj in roots['objects']}
             follow = set(concrete_references(objects[REGISTER], 'ЗаказПоставщику') + concrete_references(objects[REGISTER], 'Инвойс'))
             self.stdout.write('[2/3] Читаем заказ и инвойс…')
             related = read_metadata(source, names=sorted(follow))
             objects.update({obj['name']: obj for obj in related['objects']})
+            if not options['usd_resource']:
+                currencies = set()
+                for name in concrete_references(objects[REGISTER], 'ЗаказПоставщику'):
+                    currencies.update(concrete_references(objects[name], 'Валюта'))
+                currency_data = read_metadata(source, names=sorted(currencies))
+                objects.update({obj['name']: obj for obj in currency_data['objects']})
             if len({(obj.get('configuration'), obj.get('version')) for obj in objects.values()}) != 1:
                 raise CommandError('Конфигурация изменилась во время чтения. Повторите подготовку.')
             source.refresh_from_db()
@@ -53,7 +59,7 @@ class Command(BaseCommand):
                 self.stdout.write('Табличные части реестра: ' + ', '.join(p['name'] for p in objects[REGISTRY].get('table_parts', [])))
                 self.stdout.write('Исходник и задания не изменялись.')
                 return
-            self.stdout.write('[3/3] Формируем дневные обороты, статусы и готовую сумму управленческого учёта…')
+            self.stdout.write('[3/3] Формируем дневные обороты, статусы и USD по курсам на дату курса или платежа…')
             sql = generate(objects, usd=True, usd_resource=options['usd_resource'])
             with connect(source, timeout=1800) as database:
                 columns = describe(database, sql)
@@ -68,7 +74,7 @@ class Command(BaseCommand):
                 if target:
                     job = ETLJob(name='График платежей · по дням · USD', source_connection=source, target_connection=target,
                         source_type='SQL_QUERY', sql_query=sql, target_schema=options['target_schema'], target_table=options['target_table'],
-                        command_timeout=1800, schedule_enabled=False, description='Вся история и будущие платежи, дневные обороты. Сумма в валюте платежа и готовая сумма управленческого учёта под именем USD. Без курсов, пересчёта и дополнительного округления. Фильтры СКД и права пользователей 1С не воспроизводятся SQL-учётной записью автоматически.')
+                        command_timeout=1800, schedule_enabled=False, description='Вся история и будущие платежи, дневные обороты. Сумма в валюте платежа и USD. По умолчанию кросс-курс через RUB с кратностью на ДатаКурса, при пустой дате — на дату платежа. При явном --usd-resource используется готовый ресурс. Фильтры СКД и права пользователей 1С не воспроизводятся SQL-учётной записью автоматически.')
                     job.full_clean(); job.save()
                     ETLAuditLog.objects.create(object_type='ETLJob', object_id=job.pk, action='create')
                 output.parent.mkdir(parents=True, exist_ok=True)
@@ -78,7 +84,7 @@ class Command(BaseCommand):
             if job:
                 self.stdout.write(self.style.SUCCESS(f'Создано задание #{job.pk} → {job.target_schema}.{job.target_table}. Расписание выключено.'))
                 self.stdout.write('Откройте «1С Перенос данных → Задания» и выполните первый запуск вручную.')
-            self.stdout.write('Перед расписанием сравните суммы и статусы с 1С. USD берётся из готового ресурса управленческого учёта; курсы не используются.')
+            self.stdout.write('Перед расписанием сравните суммы и статусы с 1С. USD рассчитывается по последнему действующему курсу с учётом кратности (либо из явно указанного --usd-resource).')
         except (ValidationError, ETLError) as exc:
             raise CommandError(' '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc)) from None
         except pyodbc.Error:

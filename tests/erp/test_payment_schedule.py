@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
-from transferdata.erp.reports.payment_schedule import REGISTER, REGISTRY, POSITION, PART, generate
+from transferdata.erp.reports.payment_schedule import REGISTER, REGISTRY, POSITION, PART, RATES, generate
 
 
 @pytest.fixture
@@ -35,6 +35,7 @@ def payment_metadata():
     obj(REGISTER, [p('Период'), p('Активность'), p('ЗаказПоставщику', [order], dim=True),
         p('ТипПлатежа', [enum], dim=True), p('ЗаявкаНаОплату', [POSITION], dim=True), p('Инвойс', [invoice], dim=True),
         p('ЕстьОплата', dim=True), p('ДатаКурса', dim=True), p('СуммаПлатежа', measure=True), p('СуммаУпр', measure=True), p('ДругойРесурс', measure=True)])
+    obj(RATES, [p('Период'), p('Валюта', [currency], dim=True), p('Курс'), p('Кратность')])
     objects[REGISTRY]['table_parts'] = [dict(name='ТаблицаПлатежи', table='_Lines', properties=[p('Ссылка'), p('ПлатежнаяПозиция', [POSITION])],
         partitions=deepcopy(objects[REGISTER]['partitions']))]
     targets = []
@@ -69,7 +70,7 @@ def test_daily_turnover_preserves_dimensions_references_and_statuses(payment_met
 
 
 def test_usd_is_ready_management_resource_without_conversion(payment_metadata):
-    sql = generate(payment_metadata)
+    sql = generate(payment_metadata, usd_resource='СуммаУпр')
     prop = next(p for p in payment_metadata[REGISTER]['properties'] if p['name'] == 'СуммаУпр')
     column = prop['columns'][0]['name']
     assert f'[t].[{column}] AS [USD]' in sql
@@ -78,21 +79,29 @@ def test_usd_is_ready_management_resource_without_conversion(payment_metadata):
     assert 'AS [Сумма]' in sql
 
 
-def test_missing_or_ambiguous_management_resource_is_not_fabricated(payment_metadata):
-    prop = next(p for p in payment_metadata[REGISTER]['properties'] if p['name'] == 'СуммаУпр')
-    prop['name'] = 'ГотоваяУправленческаяСумма'
-    with pytest.raises(ValidationError, match='Ресурсы регистра'):
-        generate(payment_metadata)
-    sql = generate(payment_metadata, usd_resource='ГотоваяУправленческаяСумма')
-    assert '[USD]' in sql
+def test_rates_use_as_of_date_multiplicity_and_do_not_require_management_resource(payment_metadata):
+    payment_metadata[REGISTER]['properties'] = [p for p in payment_metadata[REGISTER]['properties'] if p['name'] not in ('СуммаУпр', 'ДругойРесурс')]
+    sql = generate(payment_metadata)
+    assert sql.split('HAVING ', 1)[1].split('\n)', 1)[0].count(' <> 0') == 1
+    assert '[USD]' in sql and '[usd_rate].[Multiplicity]' in sql
+    assert '[payment_rate].[Multiplicity]' in sql
+    assert 'YEAR(' in sql and 'THEN [t].[PaymentDay]' in sql
+    assert "'20010101'" in sql
+    assert '<= [fx_date].[Date]' in sql and 'ORDER BY CASE WHEN YEAR(' in sql
+    assert "N'840'" in sql and "N'643'" in sql
+    assert 'Нет однозначного курса' in sql and '[usd_rate].[Matches] = 1' in sql
+    assert 'NULLIF(' in sql and 'float' not in sql
     with pytest.raises(ValidationError, match='отдельный ресурс'):
         generate(payment_metadata, usd_resource='СуммаПлатежа')
-    prop['name'] = 'СуммаУпр'
-    alternative = deepcopy(prop)
-    alternative['name'] = 'СуммаПлатежаУпр'
-    alternative['columns'][0]['name'] = '_AnotherManagementAmount'
-    payment_metadata[REGISTER]['properties'].append(alternative)
-    with pytest.raises(ValidationError, match='однозначный'):
+    with pytest.raises(ValidationError, match='Не найден указанный'):
+        generate(payment_metadata, usd_resource='Отсутствует')
+
+
+def test_unsupported_rate_dimension_fails_closed(payment_metadata):
+    prop = deepcopy(payment_metadata[RATES]['properties'][1])
+    prop['name'] = 'ИсточникКурсов'
+    payment_metadata[RATES]['properties'].append(prop)
+    with pytest.raises(ValidationError, match='дополнительные измерения'):
         generate(payment_metadata)
 
 
@@ -125,12 +134,12 @@ def test_command_reads_real_structures_and_creates_manual_job(job, payment_metad
     source = job.source_connection
     output = tmp_path / 'Payment.sql'
     command = 'transferdata.erp.control.management.commands.prepare_payment_schedule_report'
-    root_names = (REGISTER, REGISTRY)
+    root_names = (REGISTER, REGISTRY, RATES)
     roots = {'objects': [payment_metadata[n] for n in root_names]}
     related = {'objects': [o for n,o in payment_metadata.items() if n not in root_names]}
     @contextmanager
     def connect(*args, **kwargs): yield MagicMock()
-    with patch(command + '.read_metadata', side_effect=[roots, related]) as read, patch(command + '.connect', connect), patch(command + '.describe', return_value=[1]):
+    with patch(command + '.read_metadata', side_effect=[roots, related, {'objects': [payment_metadata['Справочник.Валюты']]}]) as read, patch(command + '.connect', connect), patch(command + '.describe', return_value=[1]):
         call_command('prepare_payment_schedule_report', connection=source.name, target_connection=job.target_connection.name,
                      output=str(output), create_job=True)
     assert read.call_args_list[0].kwargs['include_table_parts'] is True

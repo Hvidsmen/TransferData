@@ -9,6 +9,7 @@ REGISTER = 'РегистрНакопления.даичи_ГрафикиПлат
 REGISTRY = 'Документ.бит_кзн_РеестрПлатежей'
 POSITION = 'Документ.бит_кзн_ПлатежнаяПозиция'
 PART = REGISTRY + '.ТаблицаПлатежи'
+RATES = 'РегистрСведений.КурсыВалют'
 ZERO = '0x' + '00' * 16
 
 
@@ -62,17 +63,8 @@ def generate(objects, *, usd=True, usd_resource=None):
     for name in ('ЗаказПоставщику', 'ТипПлатежа', 'ЗаявкаНаОплату', 'ЕстьОплата', 'Инвойс', 'ДатаКурса'):
         if not m.prop(REGISTER, name)['is_dimension']:
             raise ValidationError(f'{name} не является измерением виртуальной таблицы Обороты.')
-    if usd:
-        resource_names = {p['name'] for p in measures}
-        if usd_resource:
-            if usd_resource not in resource_names or usd_resource == 'СуммаПлатежа':
-                raise ValidationError('Укажите отдельный ресурс готовой суммы управленческого учёта из регистра.')
-        else:
-            candidates = resource_names.intersection({'СуммаУпр', 'СуммаПлатежаУпр'})
-            if len(candidates) != 1:
-                raise ValidationError('Не найден однозначный ресурс готовой суммы управленческого учёта. Ресурсы регистра: '
-                    + ', '.join(sorted(resource_names)) + '. Укажите --usd-resource с точным именем готового ресурса. Курсы не используются.')
-            usd_resource = candidates.pop()
+    if usd_resource and usd_resource not in {p['name'] for p in measures}:
+        raise ValidationError('Не найден указанный ресурс управленческой суммы.')
     day = 'CONVERT(datetime, CONVERT(date, ' + corrected(c(REGISTER, 'Период', 'r')) + '))'
     group = list(dict.fromkeys([day, *dims] + ([m.area(REGISTER, 'r')] if reg.get('partitions') else [])))
     physical = [expression for expression in group if expression != day]
@@ -161,7 +153,7 @@ def generate(objects, *, usd=True, usd_resource=None):
         raise ValidationError('Для заявки ожидается тип Документ.бит_кзн_ПлатежнаяПозиция из исходного запроса.')
     display(order, 'Организация', order_alias, 'Организация')
     display(order, 'Контрагент', order_alias, 'Поставщик')
-    display(order, 'Валюта', order_alias, 'ВалютаПлатежа')
+    currency_id, _, _, currencies = display(order, 'Валюта', order_alias, 'ВалютаПлатежа')
     _, invoice_type, invoice_tag, invoices = display(REGISTER, 'Инвойс', 't', 'Инвойс')
     invoice_amounts = []
     for name, alias in invoices.items():
@@ -173,7 +165,15 @@ def generate(objects, *, usd=True, usd_resource=None):
     field('CASE ' + ' '.join(invoice_amounts) + ' END', 'СуммаИнвойса')
     field(c(REGISTER, 'СуммаПлатежа', 't'), 'Сумма')
     if usd:
-        field(c(REGISTER, usd_resource, 't'), 'USD')
+        if usd_resource:
+            if usd_resource == 'СуммаПлатежа':
+                raise ValidationError('Укажите отдельный ресурс управленческой суммы.')
+            field(c(REGISTER, usd_resource, 't'), 'USD')
+        else:
+            from .payment_schedule_rates import conversion
+            expression, rate_joins = conversion(m, order, order_alias, currencies, currency_id)
+            joins.extend(rate_joins)
+            field(expression, 'USD')
         field("N'USD'", 'ВалютаUSD')
     field(corrected(c(REGISTER, 'ДатаКурса', 't')), 'ДатаКурса')
     paid = c(REGISTER, 'ЕстьОплата', 't') + ' = 0x01'
