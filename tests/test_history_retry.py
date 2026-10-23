@@ -83,3 +83,30 @@ def test_observer_cannot_launch_from_history(histories):
         assert page.status_code == 200 and 'Запустить повторно' not in page.content.decode()
         assert client.post(endpoint(job, action), {'open_result': 'yes'}).status_code == 403
         assert model.objects.filter(job=job).count() == 1
+
+
+def test_delete_buttons_and_warning_in_all_subsystems(histories):
+    client, cases = histories
+    endpoints = [('td_jobs', 'td_job_edit', 'td_bulk'), ('erp:jobs', 'erp:job_edit', 'erp:job_bulk'),
+                 ('python_jobs:jobs', 'python_jobs:edit', 'python_jobs:bulk')]
+    for (job, old, model, _, _), (listing, edit, bulk) in zip(cases, endpoints):
+        for url in (reverse(listing), reverse(edit, args=[job.pk])):
+            page = client.get(url)
+            assert page.status_code == 200
+            assert 'Удалить задание ' + job.name in page.content.decode()
+            assert reverse(bulk) in page.content.decode()
+        # The first click only displays the server confirmation with the exact job name.
+        payload = {'operation': 'delete', 'selected': [job.pk]}
+        response = client.post(reverse(bulk), payload)
+        assert response.status_code == 200
+        warning = response.content.decode()
+        assert job.name in warning and 'История запусков сохранится' in warning
+        assert 'Таблицы баз данных не удаляются' in warning
+        job.refresh_from_db()
+        assert not job.is_deleted
+        assert client.get(reverse(bulk)).status_code == 405
+        client.post(reverse(bulk), {**payload, 'confirmed': 'yes'})
+        job.refresh_from_db()
+        assert job.is_deleted
+        assert not (job.schedule_enabled if isinstance(job, ETLJob) else job.enabled)
+        assert model.objects.filter(pk=old.pk).exists()

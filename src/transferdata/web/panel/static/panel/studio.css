@@ -135,3 +135,6 @@ body{font-size:14px}.brand small{white-space:nowrap;font-size:7px;letter-spacing
 @media(max-width:480px){.portal-task-grid{grid-template-columns:1fr}.portal-monitor-group{padding:0 14px 14px}.portal-monitor-filters .search{min-width:100%}.portal-task h4{min-height:0}}
 
 .run-retry{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}.run-retry form{margin:0}.run-retry .field-help{font-size:10px;max-width:230px}.run-retry .btn svg{height:15px;width:15px}
+
+/* Job deletion always opens the server confirmation page. */
+.job-delete-form{margin-top:14px;display:flex;justify-content:flex-end}.btn.delete-job{color:#c2394b;background:#fff5f6;border:1px solid #f3c9d0;box-shadow:none}.btn.delete-job:hover{background:#ffe7eb;border-color:#dc788b}.btn.delete-job:focus-visible{outline:3px solid #f2a4b4;outline-offset:3px}.delete-confirm{border:1px solid #f3c9d0}.delete-confirm h1{color:#a82b3d}

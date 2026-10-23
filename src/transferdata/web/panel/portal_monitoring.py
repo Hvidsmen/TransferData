@@ -13,7 +13,7 @@ def python_jobs(user):
     history = user.has_perm('python_jobs.view_run')
     if history:
         jobs = annotate_latest(jobs, Run.objects.all(), {'id': 'pk', 'status': 'status', 'started': 'started_at', 'created': 'created_at'})
-    return [{'name': job.name, 'group_id': job.group_id, 'group': job.group.name if job.group else 'Без группы',
+    return [{'pk': job.pk, 'name': job.name, 'group_id': job.group_id, 'group': job.group.name if job.group else 'Без группы',
              'status': (job.monitor_status or 'never') if history else 'restricted',
              'url': reverse('python_jobs:edit', args=[job.pk]) if user.has_perm('python_jobs.change_job') else '',
              'run_url': reverse('python_jobs:run', args=[job.monitor_id]) if history and job.monitor_id else '',
@@ -39,6 +39,7 @@ def overview(request):
                 continue
             group = groups.setdefault(item['group_id'], {'id': item['group_id'], 'name': item['group'], 'count': 0, 'workers': {}})
             section = group['workers'].setdefault(key, {'key': key, 'label': label, 'icon': icon, 'jobs': []})
+            item['delete_subsystem'] = {'sql': 'transferdata', 'onec': 'erp', 'python': 'python'}[key]
             item['label'] = STATUS_LABELS.get(item['status'], item['status'])
             section['jobs'].append(item)
             group['count'] += 1

@@ -5,4 +5,4 @@
 {% if job.onec_resolve_references and job.one_c_mapping.reference_warnings %}<div class="onec-reference-warning"><strong>Не все ссылки имеют представление</strong><ul>{% for warning in job.one_c_mapping.reference_warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
 {% if generated_sql or job.sql_query %}<section class="surface metadata erp-sql-panel"><details><summary>Посмотреть SELECT</summary><pre class="onec-query">{% if generated_sql %}{{ generated_sql }}{% else %}{{ job.sql_query }}{% endif %}</pre></details></section>{% endif %}
 <section id="live-erp-job-history" data-live class="surface metadata"><div class="section-heading"><div><h2>Последние запуски</h2><p>История выполнения этого задания.</p></div><a class="text-link" href="{% url 'erp:executions' %}?job={{ job.pk }}">Вся история <svg><use href="#i-arrow"/></svg></a></div>{% include 'erp/control/history_table.html' %}</section>
-{% endblock %}
+{% include 'studio/job_delete_button.html' with subsystem='erp' %}{% endblock %}

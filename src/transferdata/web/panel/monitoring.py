@@ -25,7 +25,7 @@ def transferdata_jobs(user):
     result = []
     for job in jobs:
         status = (job.monitor_status or 'never') if can_view_runs else 'restricted'
-        result.append({'name': job.name, 'group_id': job.group_id, 'group': job.group.name if job.group else 'Без группы',
+        result.append({'pk': job.pk, 'name': job.name, 'group_id': job.group_id, 'group': job.group.name if job.group else 'Без группы',
             'archived': job.archived, 'scheduled': job.enabled,
             'status': status, 'label': STATUS_LABELS.get(status, status),
             'url': reverse('td_job_edit', args=[job.pk]) if user.has_perm('panel.change_job') else '',
@@ -46,7 +46,7 @@ def erp_jobs():
     result = []
     for job in jobs:
         status = states.get(job.monitor_status, 'never')
-        result.append({'name': job.name, 'group_id': job.group_id, 'group': job.group.name if job.group else 'Без группы',
+        result.append({'pk': job.pk, 'name': job.name, 'group_id': job.group_id, 'group': job.group.name if job.group else 'Без группы',
             'archived': job.archived, 'disabled': not job.is_active, 'scheduled': job.schedule_enabled and job.is_active,
             'status': status, 'label': STATUS_LABELS[status], 'url': reverse('erp:job_detail', args=[job.pk]),
             'run_url': reverse('erp:execution_detail', args=[job.monitor_id]) if job.monitor_id else '',
