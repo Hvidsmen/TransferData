@@ -111,3 +111,21 @@ def test_msdb_monitor_preserves_saved_connection_and_uses_cache_and_bound_guid(a
     assert agent_connection.database == 'DataWH'
     assert 'step_id = 0' in JOBS and 'ORDER BY agent_start_date DESC' in JOBS
     assert 'command' not in STEPS.lower()
+
+
+@pytest.mark.django_db
+def test_uppercase_sql_server_job_guid_can_be_rendered_and_opened(client, django_user_model, agent_connection):
+    cache.clear()
+    client.force_login(django_user_model.objects.create_superuser('agent-guid-admin'))
+    record = dict(id=JOB_ID.upper(), name='Uppercase SQL job', enabled=True, category='DWH', last_status=1,
+        active=0, run_date=20261024, run_time=10000, run_duration=123)
+    @contextmanager
+    def connection(*args, **kwargs):
+        yield MagicMock()
+    with patch('transferdata.sql_agent.services.connect', connection), patch('transferdata.sql_agent.services.rows',
+        side_effect=[[deepcopy(record)], [], [deepcopy(record)], [], [], []]):
+        response = client.get(reverse('sql_agent_jobs'), {'connection':agent_connection.pk})
+        assert response.status_code == 200
+        detail_url = reverse('sql_agent_detail', args=[UUID(JOB_ID)])
+        assert detail_url in response.content.decode()
+        assert client.get(detail_url, {'connection':agent_connection.pk}).status_code == 200

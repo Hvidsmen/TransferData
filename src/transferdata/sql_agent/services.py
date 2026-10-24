@@ -1,4 +1,5 @@
 from copy import copy
+from uuid import UUID
 from datetime import datetime
 import hashlib
 import json
@@ -103,7 +104,7 @@ def decorate(record):
 def key(config):
     fields = ('pk','server','port','database','driver','authentication_type','username','credential_reference','trust_server_certificate','updated_at')
     raw = json.dumps([str(getattr(config, field)) for field in fields], ensure_ascii=True)
-    return 'sql-agent:' + hashlib.sha256(raw.encode()).hexdigest()
+    return 'sql-agent:v2:' + hashlib.sha256(raw.encode()).hexdigest()
 
 
 def read(config, job_id=None):
@@ -127,6 +128,8 @@ def read(config, job_id=None):
                 schedule['end_date'] = stamp(schedule.get('active_end_date'), 0)
                 index.setdefault(schedule['job_id'].lower(), []).append(schedule)
             for job in jobs:
+                # SQL Server returns uppercase GUID text; Django's UUID route requires canonical lowercase.
+                job['id'] = str(UUID(str(job['id'])))
                 decorate(job)
                 job['schedules'] = index.get(job['id'].lower(), [])
             result = {'jobs': jobs, 'observed_at': timezone.now()}
