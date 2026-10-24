@@ -1,10 +1,13 @@
 from django.urls import path, include
 from django.views.generic import RedirectView
+from transferdata.sql_agent import views as sql_agent
 from transferdata.web.panel.admin import site
 from transferdata.web.panel import studio, job_management
 
 urlpatterns = [
     path("", studio.portal, name="etl_portal"),
+    path("sql-agent/", sql_agent.jobs, name="sql_agent_jobs"),
+    path("sql-agent/jobs/<uuid:job_id>/", sql_agent.jobs, name="sql_agent_detail"),
     path("transferdata/", studio.overview, name="td_overview"),
     path("erp/", include("transferdata.erp.urls")),
     path("python/", include("transferdata.python_jobs.urls")),
