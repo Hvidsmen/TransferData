@@ -139,3 +139,20 @@ def test_script_output_is_bounded(python_job, settings):
     execute_next()
     run.refresh_from_db()
     assert run.status == 'success' and len(run.output) <= 65536
+
+
+def test_builtin_failure_reason_is_shown_in_result_instead_of_child_process_error(python_job):
+    import io, json
+    from unittest.mock import MagicMock
+    from transferdata.python_jobs.services import PREFIX
+    reason = 'Header (nvarchar(2)): требуется 12 байт, допустимо 4. SQLSTATE: 22001.'
+    process = MagicMock()
+    process.stdout = io.BytesIO((PREFIX + json.dumps({'completed':16,'total':528,'rows':351}) + '\n' +
+        PREFIX + json.dumps({'error': reason}) + '\n').encode())
+    process.poll.return_value = process.returncode = 1
+    run, _ = enqueue(python_job)
+    with patch('transferdata.python_jobs.services.subprocess.Popen', return_value=process):
+        execute_next()
+    run.refresh_from_db()
+    assert run.status == 'failed' and run.message == reason
+    assert run.completed == 16 and run.rows == 351 and reason in run.output

@@ -3,6 +3,7 @@ from datetime import date
 from django.core.exceptions import ValidationError
 from transferdata.erp.control.models import DatabaseConnection
 from transferdata.erp.engine.connections import connect
+from .header_validation import read_columns, validate_rows
 
 DOCUMENTS = '[erp].[Документ.бит_КоммерческоеПредложениеКлиенту]'
 LINES = '[erp].[Документы.бит_КоммерческоеПредложениеКлиентуТовары]'
@@ -58,6 +59,7 @@ def commercial_headers(snapshot, progress):
             lock = cursor.execute("DECLARE @result int; EXEC @result = sys.sp_getapplock @Resource=N'etl-dev:commercial-headers', @LockMode='Exclusive', @LockOwner='Session', @LockTimeout=0; SELECT @result").fetchone()[0]
             if lock < 0:
                 raise RuntimeError('Обработчик заголовков уже выполняется')
+            columns = read_columns(cursor, HEADERS)
             # Unlike NOT IN this handles NULL keys in the target. Missing individual rows repair partial documents.
             keys = cursor.execute(f'''SELECT DISTINCT kp.[DocumentKey]
 FROM {DOCUMENTS} AS kp INNER JOIN {LINES} AS kpt ON kp.[Ссылка] = kpt.[Ссылка]
@@ -77,6 +79,7 @@ WHERE kp.[DocumentKey] = ? AND kp.[Дата] >= ? ORDER BY kpt.[НомерСтр
                     prepared = fill_headers(raw)
                     if not prepared:
                         raise ValueError('Документ исчез во время обработки')
+                    validate_rows(columns, key, prepared, completed)
                     cursor.execute(f'DELETE FROM {HEADERS} WHERE [DocumentKey] = ?', key)
                     cursor.executemany(f'INSERT INTO {HEADERS} ([DocumentKey], [NumberRow], [Header]) VALUES (?, ?, ?)',
                                        [(key, number, header) for number, header in prepared])

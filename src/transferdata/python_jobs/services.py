@@ -85,6 +85,7 @@ def execute_next():
     output = deque(maxlen=128)  # Bound in-memory and persisted output, even for a noisy script.
     events = queue.Queue(maxsize=128)
     child_result = None
+    child_error = None
     try:
         config = run.snapshot
         builtin = config['handler'] == 'commercial_headers'
@@ -120,7 +121,11 @@ def execute_next():
                     except ValueError:
                         pass
                 if isinstance(event, dict):
-                    if event.get('result') is True:
+                    if isinstance(event.get('error'), str):
+                        child_error = event['error'][:2000]
+                        run.message = child_error
+                        output.append(child_error)
+                    elif event.get('result') is True:
                         child_result = event.get('rows', 0)
                     else:
                         run.completed = max(0, int(event.get('completed', run.completed)))
@@ -149,7 +154,7 @@ def execute_next():
         run.status = 'failed'
         if isinstance(exc, ValidationError):
             output.append('; '.join(exc.messages))
-        run.message = ('Превышено максимальное время. Обработчик остановлен; проверьте уже выполненные операции.' if isinstance(exc, TimeoutError)
+        run.message = child_error if isinstance(exc, ChildProcessError) and child_error else ('Превышено максимальное время. Обработчик остановлен; проверьте уже выполненные операции.' if isinstance(exc, TimeoutError)
                        else f'Обработка не завершена: {type(exc).__name__}. Подробности в журнале; успешно зафиксированные документы сохранены.')
     finally:
         if process and process.poll() is None:

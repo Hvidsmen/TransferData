@@ -3,6 +3,7 @@ from django.core.management.base import BaseCommand, CommandError
 from transferdata.python_jobs.models import Run
 from transferdata.python_jobs.handlers import commercial_headers
 from transferdata.python_jobs.services import PREFIX
+from transferdata.python_jobs.header_validation import safe_failure
 
 
 class Command(BaseCommand):
@@ -21,6 +22,7 @@ class Command(BaseCommand):
         try:
             rows = commercial_headers(run.snapshot, progress)
         except Exception as exc:
-            # ODBC errors can include SQL values and secrets: log only the exception class.
-            raise CommandError(f'Обработчик заголовков: {type(exc).__name__}. Последний документ отменён. Проверьте структуру таблиц, длину Header, подключение и права записи.') from None
+            message = safe_failure(exc)
+            progress(error=message)
+            raise CommandError(message) from None
         self.stdout.write(PREFIX + json.dumps({'result': True, 'rows': rows}))
