@@ -4,7 +4,7 @@ from django.utils import timezone
 from .operations import annotate_success, add_facts, worker_health
 from .monitoring import annotate_latest, transferdata_jobs, erp_jobs, STATUS_LABELS
 
-WORKERS = [('sql', 'SQL Перенос данных', 'i-transfer'), ('onec', '1С Перенос данных', 'i-db'), ('python', 'Python обработчик', 'i-code')]
+WORKERS = [('sql', 'SQL Перенос данных', 'i-transfer'), ('onec', '1С Перенос данных', 'i-db'), ('python', 'Python обработчик', 'i-code'), ('agent', 'SQL Server Agent', 'i-clock')]
 
 
 def python_jobs(user, ids=None):
@@ -35,13 +35,20 @@ def overview(request):
     attention = []
     health = worker_health()
     request._etl_health = health
-    sources = [transferdata_jobs(request.user), erp_jobs(), python_jobs(request.user)]
+    from transferdata.sql_agent.overview import cards
+    try:
+        agent_cards, agent_notice = cards(request)
+    except Exception:
+        agent_cards = []
+        agent_notice = {'state':'error', 'message':'Не удалось подготовить сведения SQL Server Agent. Откройте раздел Agent для проверки подключения.'}
+    health_by_key = {item['key']: item for item in health}
+    sources = [transferdata_jobs(request.user), erp_jobs(), python_jobs(request.user), agent_cards]
     for (key, label, icon), jobs in zip(WORKERS, sources):
         total += len(jobs)
         for item in jobs:
             item['worker_name'] = label
-            item['label'] = STATUS_LABELS.get(item['status'], item['status'])
-            item['waiting_worker'] = item['status'] == 'queued' and health[[w[0] for w in WORKERS].index(key)]['state'] == 'unknown'
+            item['label'] = item.get('label') or STATUS_LABELS.get(item['status'], item['status'])
+            item['waiting_worker'] = item['status'] == 'queued' and key in health_by_key and health_by_key[key]['state'] == 'unknown'
             if item['attention'] or item['waiting_worker']:
                 attention.append(item)
             if worker and key != worker:
@@ -52,8 +59,8 @@ def overview(request):
                 continue
             group = groups.setdefault(item['group_id'], {'id': item['group_id'], 'name': item['group'], 'count': 0, 'workers': {}})
             section = group['workers'].setdefault(key, {'key': key, 'label': label, 'icon': icon, 'jobs': []})
-            item['delete_subsystem'] = {'sql': 'transferdata', 'onec': 'erp', 'python': 'python'}[key]
-            item['label'] = STATUS_LABELS.get(item['status'], item['status'])
+            item['delete_subsystem'] = {'sql': 'transferdata', 'onec': 'erp', 'python': 'python', 'agent':'agent'}[key]
+            item['label'] = item.get('label') or STATUS_LABELS.get(item['status'], item['status'])
             section['jobs'].append(item)
             group['count'] += 1
             shown += 1
@@ -61,5 +68,5 @@ def overview(request):
     for group in result:
         group['workers'] = list(group['workers'].values())
     return {'portal_groups': result, 'job_total': total, 'job_shown': shown, 'query': query,
-            'health': health, 'attention_jobs': attention, 'updated_at': timezone.now(),
-            'worker': worker, 'status': status, 'workers': WORKERS, 'statuses': STATUS_LABELS.items()}
+            'agent_notice': agent_notice, 'health': health, 'attention_jobs': attention, 'updated_at': timezone.now(),
+            'worker': worker, 'status': status, 'workers': WORKERS if request.user.is_superuser else WORKERS[:3], 'statuses': STATUS_LABELS.items()}

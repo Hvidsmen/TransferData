@@ -10,6 +10,7 @@ from transferdata.erp.engine.connections import connect
 # Only Agent metadata is read. Never fetch job commands, proxies or credentials.
 JOBS = '''SELECT CONVERT(varchar(36), j.job_id) AS id, j.name, j.enabled,
  c.name AS category, h.run_status AS last_status, h.run_date, h.run_time, h.run_duration,
+ ok.run_date AS success_date, ok.run_time AS success_time,
  a.start_execution_date AS started_at,
  CASE WHEN a.start_execution_date IS NOT NULL AND a.stop_execution_date IS NULL THEN 1 ELSE 0 END AS active,
  a.next_scheduled_run_date AS next_run
@@ -17,6 +18,8 @@ JOBS = '''SELECT CONVERT(varchar(36), j.job_id) AS id, j.name, j.enabled,
  LEFT JOIN msdb.dbo.syscategories AS c ON c.category_id = j.category_id AND c.category_class = 1
  OUTER APPLY (SELECT TOP (1) run_status, run_date, run_time, run_duration
  FROM msdb.dbo.sysjobhistory WHERE job_id = j.job_id AND step_id = 0 ORDER BY instance_id DESC) AS h
+ OUTER APPLY (SELECT TOP (1) run_date, run_time FROM msdb.dbo.sysjobhistory
+ WHERE job_id = j.job_id AND step_id = 0 AND run_status = 1 ORDER BY instance_id DESC) AS ok
  LEFT JOIN msdb.dbo.sysjobactivity AS a ON a.job_id = j.job_id AND a.session_id =
  (SELECT TOP (1) session_id FROM msdb.dbo.syssessions ORDER BY agent_start_date DESC, session_id DESC)
  ORDER BY j.name, j.job_id'''
@@ -97,6 +100,7 @@ def decorate(record):
     record['status'], record['label'] = ('running', 'Есть незавершённая активность') if record.get('active') else STATUSES.get(record.get('last_status', record.get('run_status')), ('never', 'Нет истории'))
     record['last_result_label'] = STATUSES.get(record.get('last_status', record.get('run_status')), ('never', 'Нет истории'))[1]
     record['last_run'] = stamp(record.get('run_date'), record.get('run_time'))
+    record['last_success'] = stamp(record.get('success_date'), record.get('success_time'))
     record['duration'] = duration(record.get('run_duration'))
     return record
 
@@ -104,7 +108,7 @@ def decorate(record):
 def key(config):
     fields = ('pk','server','port','database','driver','authentication_type','username','credential_reference','trust_server_certificate','updated_at')
     raw = json.dumps([str(getattr(config, field)) for field in fields], ensure_ascii=True)
-    return 'sql-agent:v2:' + hashlib.sha256(raw.encode()).hexdigest()
+    return 'sql-agent:v3:' + hashlib.sha256(raw.encode()).hexdigest()
 
 
 def read(config, job_id=None):

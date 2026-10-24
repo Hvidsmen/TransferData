@@ -6,6 +6,7 @@ from django.shortcuts import render
 from django.views.decorators.http import require_safe
 from transferdata.erp.control.models import DatabaseConnection
 from .services import read
+from .overview import choose_connection
 
 
 @staff_member_required(login_url='admin:login')
@@ -21,9 +22,9 @@ def jobs(request, job_id=None):
         if not selected:
             raise Http404
     elif not choice:
-        matching = [item for item in connections if item.server.lower().split('.')[0].split('\\')[0] == 'vm-dwh']
-        preferred = [item for item in matching if item.role in ('TARGET', 'BOTH')]
-        selected = (preferred or matching)[0] if len(preferred or matching) == 1 else None
+        selected = choose_connection(connections, request.session.get('sql_agent_connection'))
+    if selected and choice and request.session.get('sql_agent_connection') != selected.pk:
+        request.session['sql_agent_connection'] = selected.pk
     context = {'title': 'Задания SQL Server Agent', 'section': 'agent', 'subsystem': 'agent',
         'connections': connections, 'connection': selected, 'query': request.GET.get('q', '').strip(),
         'status': request.GET.get('status', ''), 'job_id': job_id}
