@@ -26,7 +26,7 @@
     </tbody></table></div>
   </section>
   {% endif %}
-  <div class="td-shortcuts">
+  <div class="td-shortcuts">{% if user.is_superuser %}<a class="td-shortcut" href="{% url 'portal_update' %}"><span class="td-shortcut-icon">↻</span><div><h2>Обновление портала</h2><p>Запуск обновления, этапы и журнал</p></div><b>→</b></a>{% endif %}
     {% if perms.panel.view_job %}<a class="td-shortcut" href="{% url 'admin:panel_job_changelist' %}"><span class="td-shortcut-icon">⇄</span><div><h2>Задания переноса</h2><p>Таблицы, расписания и соответствия столбцов</p></div><b>→</b></a>{% endif %}
     {% if perms.panel.view_connection %}<a class="td-shortcut" href="{% url 'admin:panel_connection_changelist' %}"><span class="td-shortcut-icon">⌘</span><div><h2>Подключения</h2><p>Источники SQL Server и базы PostgreSQL</p></div><b>→</b></a>{% endif %}
   </div>

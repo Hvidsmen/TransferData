@@ -3,7 +3,9 @@
 param(
     [string[]]$TaskName = @(),
     [string]$TaskPath = "\",
-    [int]$WaitSeconds = 600
+    [int]$WaitSeconds = 600,
+    [string]$StatusFile = "",
+    [string]$RequestId = ""
 )
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -18,6 +20,36 @@ $stopped = $false
 $mutationStarted = $false
 $flagCreated = $false
 $backup = $null
+
+$script:updatePhase = "check"
+$script:updateStep = 0
+$script:updateJournal = @()
+$script:updateRequester = ""
+if ($StatusFile) {
+    $expected = Join-Path $state ("portal-update\runs\" + $RequestId + ".json")
+    if ($RequestId -notmatch '^[a-f0-9]{32}$' -or [IO.Path]::GetFullPath($StatusFile) -ne [IO.Path]::GetFullPath($expected)) { throw "Invalid update status path." }
+    try {
+        $initial = Get-Content -LiteralPath $StatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($initial.id -eq $RequestId) { $script:updateJournal = @($initial.events); $script:updateRequester = $initial.requested_by }
+    } catch { Write-Warning "Initial progress metadata was unavailable." }
+}
+function Write-UpdateStatus {
+    param([string]$Phase, [int]$Step, [string]$State = "running")
+    $script:updatePhase = $Phase
+    $script:updateStep = $Step
+    if (-not $StatusFile) { return }
+    $now = [DateTime]::UtcNow.ToString('o')
+    $script:updateJournal += @{phase=$Phase; at=$now}
+    $payload = @{version=1; id=$RequestId; state=$State; phase=$Phase; step=$Step; total=11; updated_at=$now; requested_by=$script:updateRequester; recovery_required=([bool]$mutationStarted -and $State -eq 'failed'); events=@($script:updateJournal | Select-Object -Last 40)}
+    $temp = $StatusFile + "." + [guid]::NewGuid().ToString('N') + ".tmp"
+    $previous = $temp + ".old"
+    try {
+        $payload | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $temp -Encoding UTF8
+        if (Test-Path -LiteralPath $StatusFile) { [IO.File]::Replace($temp, $StatusFile, $previous) }
+        else { [IO.File]::Move($temp, $StatusFile) }
+    } catch { Write-Warning "Could not publish update progress. The update itself continues." }
+    finally { Remove-Item -LiteralPath $temp, $previous -ErrorAction SilentlyContinue }
+}
 
 function Invoke-Checked {
     param([string]$Program, [string[]]$Arguments)
@@ -43,6 +75,7 @@ function Test-TaskRunning {
 }
 
 try {
+    Write-UpdateStatus "check" 0
     if ($WaitSeconds -lt 5) { throw "WaitSeconds must be at least 5." }
     if (Test-Path $flag) { throw "A maintenance flag already exists. Review the previous update before continuing." }
     if (-not $TaskName.Count) {
@@ -76,6 +109,7 @@ try {
     }
     $branch = (& git branch --show-current).Trim()
     if ($LASTEXITCODE -ne 0 -or $branch -ne "main") { throw "Update must run from the main branch." }
+    Write-UpdateStatus "fetch" 1
     Invoke-Checked "git" @("fetch", "origin", "refs/heads/main:refs/remotes/origin/main")
     & git merge-base --is-ancestor HEAD refs/remotes/origin/main
     if ($LASTEXITCODE -ne 0) { throw "Local main has diverged. Resolve it manually; no reset will be performed." }
@@ -91,14 +125,15 @@ try {
     Invoke-Checked $python @("-c", "import transferdata.web.maintenance")
     New-Item -ItemType Directory -Force $state | Out-Null
     Remove-Item (Join-Path $state "paused-transferdata"), (Join-Path $state "paused-erp"), (Join-Path $state "paused-python") -ErrorAction SilentlyContinue
+    Write-UpdateStatus "pause" 2
     New-Item -ItemType File $flag -ErrorAction Stop | Out-Null
     $flagCreated = $true
     foreach ($task in $tasks) {
         $changed += [pscustomobject]@{Name=$task.TaskName; Enabled=[bool]$task.Settings.Enabled; Running=(Test-TaskRunning $task.TaskName)}
         Disable-ScheduledTask -TaskName $task.TaskName -TaskPath $TaskPath | Out-Null
     }
-    # Stop UI first. Workers finish the current load and acknowledge pause before stopping.
-    if (Test-TaskRunning $modes["web"]) { Stop-ScheduledTask -TaskName $modes["web"] -TaskPath $TaskPath }
+    # Keep the UI available while workers finish; all new writes are paused.
+    Write-UpdateStatus "wait" 3
     Write-Host "Waiting for running transfers to finish. No data transaction will be interrupted."
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     do {
@@ -110,6 +145,7 @@ try {
         if ((Get-Date) -gt $deadline) { throw "Workers did not acknowledge pause in time. Existing workers may need a one-time restart to load maintenance support." }
         Start-Sleep -Seconds 2
     } while ($true)
+    Write-UpdateStatus "backup" 4
     foreach ($task in $tasks) {
         if (Test-TaskRunning $task.TaskName) { Stop-ScheduledTask -TaskName $task.TaskName -TaskPath $TaskPath }
     }
@@ -130,7 +166,12 @@ try {
         $acl.AddAccessRule($rule)
     }
     Set-Acl -LiteralPath $backup -AclObject $acl
-    Copy-Item -LiteralPath $state -Destination (Join-Path $backup "state") -Recurse
+    $backupState = Join-Path $backup "state"
+    New-Item -ItemType Directory -Force $backupState | Out-Null
+    # The updater owns exclusive control locks; runtime update files are not application state.
+    Get-ChildItem -LiteralPath $state -Force | Where-Object { $_.Name -ne "portal-update" } | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $backupState -Recurse
+    }
     foreach ($transient in @("maintenance.flag", "paused-transferdata", "paused-erp", "paused-python")) {
         Remove-Item -LiteralPath (Join-Path (Join-Path $backup "state") $transient) -ErrorAction SilentlyContinue
     }
@@ -146,19 +187,26 @@ try {
         }
     }
     Write-Host "Backup created: $backup"
+    Write-UpdateStatus "install" 5
     $mutationStarted = $true
     Invoke-Checked "git" @("merge", "--ff-only", "refs/remotes/origin/main")
     if ($useVenv) { Invoke-Checked "py" @("-m", "uv", "sync", "--locked") }
     else { Invoke-Checked "py" @("-m", "pip", "install", "--user", "--no-build-isolation", ".") }
+    Write-UpdateStatus "migrate" 6
     Invoke-Checked $python @("-m", "transferdata.web", "migrate", "--noinput")
+    Write-UpdateStatus "static" 7
     Invoke-Checked $python @("-m", "transferdata.web", "collectstatic", "--noinput")
+    Write-UpdateStatus "validate" 8
     Invoke-Checked $python @("-m", "transferdata.web", "check")
+    Write-UpdateStatus "helper" 9
     if (Test-Path (Join-Path $state "onec-helper.json")) {
         Invoke-Checked "powershell.exe" @("-NoProfile", "-NonInteractive", "-File", (Join-Path $projectRoot "windows\Install-1CMetadata.ps1"), "-UseExisting")
     }
+    Write-UpdateStatus "restart" 10
     Restore-TaskStates
     Remove-Item -LiteralPath $flag
     $flagCreated = $false
+    Write-UpdateStatus "complete" 11 "success"
     Write-Host "ETL Dev updated. Previously running tasks were restarted."
 } catch {
     if (-not $mutationStarted) {
@@ -174,6 +222,7 @@ try {
         Write-Warning "Update failed after code/dependency changes. Tasks remain stopped and disabled. Backup: $backup"
         Write-Warning "Repair the failure before removing .state\maintenance.flag and enabling/restarting the tasks."
     }
+    Write-UpdateStatus $script:updatePhase $script:updateStep "failed"
     Write-Error $_
     exit 1
 } finally {

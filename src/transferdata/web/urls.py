@@ -1,10 +1,13 @@
 from django.urls import path, include
 from django.views.generic import RedirectView
+from transferdata.web.portal_update import views as updates
 from transferdata.sql_agent import views as sql_agent
 from transferdata.web.panel.admin import site
 from transferdata.web.panel import studio, job_management
 
 urlpatterns = [
+    path("administration/update/", updates.page, name="portal_update"),
+    path("administration/update/status/<uuid:run_id>/", updates.status, name="portal_update_status"),
     path("", studio.portal, name="etl_portal"),
     path("sql-agent/", sql_agent.jobs, name="sql_agent_jobs"),
     path("sql-agent/jobs/<uuid:job_id>/", sql_agent.jobs, name="sql_agent_detail"),
