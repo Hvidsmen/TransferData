@@ -204,7 +204,26 @@ try {
         Invoke-Checked "powershell.exe" @("-NoProfile", "-NonInteractive", "-File", (Join-Path $projectRoot "windows\Install-1CMetadata.ps1"), "-UseExisting")
     }
     Write-UpdateStatus "restart" 10
+    $serviceStart = [DateTime]::UtcNow.ToString('o')
     Restore-TaskStates -StartEnabled
+    # Verify new worker heartbeats while maintenance still prevents data transfers.
+    $healthArgs = @('-m', 'transferdata.web', 'wait_worker_health', '--since', $serviceStart)
+    $checkWorkers = 0
+    foreach ($pair in @(@('worker', 'sql'), @('erp-worker', 'onec'), @('python-worker', 'python'))) {
+        if ($modes.ContainsKey($pair[0])) {
+            $taskState = $changed | Where-Object { $_.Name -eq $modes[$pair[0]] }
+            if ($taskState.Enabled -or $taskState.Running) {
+                $healthArgs += @('--worker', $pair[1])
+                $checkWorkers++
+            }
+        }
+    }
+    if ($checkWorkers) { Invoke-Checked $python $healthArgs }
+    foreach ($item in $changed) {
+        if (($item.Enabled -or $item.Running) -and -not (Test-TaskRunning $item.Name)) {
+            throw "Service '$($item.Name)' exited after restart. Update is not healthy."
+        }
+    }
     Remove-Item -LiteralPath $flag
     $flagCreated = $false
     Write-UpdateStatus "complete" 11 "success"

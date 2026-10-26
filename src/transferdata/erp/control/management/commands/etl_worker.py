@@ -48,6 +48,8 @@ class Command(BaseCommand):
             last_schedule_check = 0
             while True:
                 close_old_connections()
+                # Report liveness even while maintenance blocks new work.
+                WorkerLease.objects.update_or_create(pk=1, defaults={'owner': owner, 'heartbeat': timezone.now()})
                 if worker_paused("erp"):
                     if options['once']:
                         return
@@ -56,7 +58,6 @@ class Command(BaseCommand):
                 if time.monotonic() - last_schedule_check >= 30:
                     enqueue_due_jobs()
                     last_schedule_check = time.monotonic()
-                WorkerLease.objects.update_or_create(pk=1, defaults={'owner': owner, 'heartbeat': timezone.now()})
                 execution = claim()
                 scanned = False
                 if execution or OneCScan.objects.filter(status='PENDING').exists():

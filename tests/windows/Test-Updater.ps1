@@ -23,6 +23,14 @@ $mutationStarted=$true
 Write-UpdateStatus 'install' 5 'failed'
 $state=Get-Content $StatusFile -Raw|ConvertFrom-Json
 if(-not $state.recovery_required -or $state.events.Count -ne 2){throw 'Failure/recovery state missing'}
+$TaskPath='\'
+$scheduler=New-Object PSObject
+$scheduler|Add-Member -MemberType ScriptMethod -Name GetRunningTasks -Value {param($unused) return @([pscustomobject]@{Path='\ERP'})}
+if(-not (Test-TaskRunning 'ERP')){throw 'Root task path did not match the COM scheduler path'}
+$TaskPath='\ETL\'
+$scheduler=New-Object PSObject
+$scheduler|Add-Member -MemberType ScriptMethod -Name GetRunningTasks -Value {param($unused) return @([pscustomobject]@{Path='\ETL\ERP'})}
+if(-not (Test-TaskRunning 'ERP')){throw 'Nested task path did not match the COM scheduler path'}
 $script:calls=@();$TaskPath='\'
 $changed=@(@{Name='Web';Enabled=$true;Running=$true},@{Name='SQL';Enabled=$true;Running=$false},@{Name='ERP';Enabled=$false;Running=$false})
 $scheduler=New-Object PSObject
