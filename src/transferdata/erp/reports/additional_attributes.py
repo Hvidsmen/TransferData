@@ -46,7 +46,7 @@ def discovery_sql(root, definitions):
             + ' AND '.join(conditions))
 
 
-def generate(root, attributes):
+def generate(root, attributes, *, structure=None):
     part = parts(root)
     base = source_query(mapping_from_metadata(root), adjust_dates=True, resolve_references=True)
     mapping = mapping_from_metadata(part)
@@ -68,6 +68,8 @@ def generate(root, attributes):
         if candidate.casefold() in used:
             raise ValidationError('Не удалось сформировать уникальные имена колонок.')
         used.add(candidate.casefold())
+        if structure is not None:
+            structure.append({'name': candidate, 'property_id': key[:32]})
         return q(candidate)
     fields = ['[employee].*']
     for identity, name in sorted(attributes, key=lambda x: bytes(x[0])):

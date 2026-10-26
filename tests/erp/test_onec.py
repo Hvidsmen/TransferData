@@ -327,3 +327,20 @@ def test_reader_batch_keeps_protocol_and_uses_stdin(job, settings, tmp_path):
         assert read_metadata(job.source_connection, names=names)['objects'] == []
     with pytest.raises(ETLError):
         read_metadata(job.source_connection, names=[])
+
+
+def test_structure_page_expands_table_parts_and_named_attributes(client, obj, django_user_model):
+    user = django_user_model.objects.create_user(username='structure-reader', password='test', is_staff=True)
+    client.force_login(user)
+    obj.metadata['table_parts'] = [{'name': 'ДополнительныеРеквизиты', 'table': '_Reference649_VT', 'properties': [
+        {'name': 'Значение', 'columns': [{'name': '_Fld123', 'purpose': 'String', 'type': 'nvarchar(100)'}]}]}]
+    obj.metadata['additional_attributes_loaded'] = True
+    obj.metadata['additional_attributes'] = [{'name': 'Email', 'columns': ['Email', 'Email__String']}]
+    obj.save()
+    with patch('transferdata.erp.control.onec.read_metadata') as reader:
+        response = client.get(reverse('erp:onec_detail', args=[obj.pk]))
+    assert response.status_code == 200
+    html = response.content.decode()
+    for expected in ('_Fld123', 'nvarchar(100)', 'Email__String', 'Дополнительные свойства'):
+        assert expected in html
+    reader.assert_not_called()

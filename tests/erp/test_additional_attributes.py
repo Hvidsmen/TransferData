@@ -79,3 +79,31 @@ def test_individual_command_keeps_separate_defaults():
     assert options['target_table'] == 'IndividualsExpanded'
     assert options['output'] == '.state/IndividualsExpanded.sql'
     assert command.object_label == 'Физические лица'
+
+
+def test_structure_preview_reads_names_but_never_employee_values():
+    from unittest.mock import MagicMock, patch
+    from transferdata.erp.control.onec_structure import enrich_attributes
+    root, definitions = example()
+    root['table_parts'][0]['properties'][1]['references'] = ['ПланВидовХарактеристик.Свойства']
+    cursor = MagicMock()
+    cursor.fetchmany.return_value = [(b'a'*16, 'Email')]
+    database = MagicMock()
+    database.cursor.return_value = cursor
+    with patch('transferdata.erp.control.onec.read_metadata', return_value=definitions), patch('transferdata.erp.control.onec_structure.connect') as connection:
+        connection.return_value.__enter__.return_value = database
+        enrich_attributes(object(), root)
+    assert root['additional_attributes_loaded'] is True
+    assert root['additional_attributes'][0]['name'] == 'Email'
+    assert 'Email' in root['additional_attributes'][0]['columns']
+    assert '_Text' not in cursor.execute.call_args.args[0]
+    cursor.close.assert_called_once()
+
+
+def test_structure_failure_is_safe_and_preserves_physical_fields():
+    from transferdata.erp.control.onec_structure import enrich_attributes
+    root, _ = example()
+    enrich_attributes(object(), root)
+    assert root['additional_attributes_warning']
+    assert root['table_parts'][0]['properties']
+    assert not root.get('additional_attributes_loaded')

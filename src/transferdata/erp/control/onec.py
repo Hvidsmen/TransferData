@@ -169,7 +169,11 @@ def scan_next():
         return False
     fingerprint = connection_fingerprint(scan.connection)
     try:
-        data = read_metadata(scan.connection, scan.object.name if scan.object_id else None)
+        data = (read_metadata(scan.connection, scan.object.name, include_table_parts=True)
+                if scan.object_id else read_metadata(scan.connection, None))
+        if scan.object_id:
+            from .onec_structure import enrich_attributes
+            enrich_attributes(scan.connection, data)
         OneCScan.objects.filter(pk=scan.pk).update(phase='SAVING')
         with transaction.atomic():
             current = DatabaseConnection.objects.select_for_update().get(pk=scan.connection_id)
