@@ -9,7 +9,7 @@ foreach ($name in @('Update-Portal.ps1','Install-PortalUpdater.ps1','Invoke-Port
 $ast=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'windows/Update-Portal.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Parse failed'}
 $definitions=$ast.FindAll({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst]},$false)
-foreach($name in @('Write-UpdateStatus','Restore-TaskStates','Test-TaskRunning')) {
+foreach($name in @('Write-UpdateStatus','Restore-TaskStates','Test-TaskRunning','Set-ERPWorkerSettings')) {
  $definition=$definitions|Where-Object{$_.Name -eq $name}
  Invoke-Expression ($definition.Extent.Text.Replace('catch { Write-Warning "Could not publish update progress. The update itself continues." }', 'catch { throw }'))
 }
@@ -43,5 +43,11 @@ if(($script:calls -join ',') -ne 'enable:Web,start:Web,enable:SQL,disable:ERP'){
 $script:calls=@()
 Restore-TaskStates -StartEnabled
 if(($script:calls -join ',') -ne 'enable:Web,start:Web,enable:SQL,start:SQL,disable:ERP'){throw 'Enabled idle services were not started after success'}
+$script:mockERP=[pscustomobject]@{Settings=[pscustomobject]@{Enabled=$false;ExecutionTimeLimit='PT72H';RestartCount=0;RestartInterval='PT0M';MultipleInstances='Parallel'};Principal='original-account';Actions='original-action'}
+function Get-ScheduledTask {param($TaskName,$TaskPath) return $script:mockERP}
+function Set-ScheduledTask {param($InputObject) $script:configuredERP=$InputObject}
+Set-ERPWorkerSettings -Name 'ERP'
+if($script:configuredERP.Settings.ExecutionTimeLimit -ne 'PT0S' -or $script:configuredERP.Settings.RestartCount -ne 999 -or $script:configuredERP.Settings.RestartInterval -ne 'PT1M'){throw 'ERP persistent-worker recovery settings missing'}
+if($script:configuredERP.Settings.Enabled -or $script:configuredERP.Principal -ne 'original-account' -or $script:configuredERP.Actions -ne 'original-action'){throw 'ERP identity/action/enabled state changed'}
 Remove-Item -LiteralPath $StatusFile -ErrorAction SilentlyContinue
 Write-Output 'Progress persistence, failed recovery marker and task-state restoration passed (mock scheduler).'

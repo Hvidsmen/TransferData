@@ -20,6 +20,7 @@ def enqueue(job, user=None, schedule_key=None):
     except IntegrityError:
         raise ValidationError('Задание уже в очереди/выполняется либо плановый запуск уже создан.') from None
 
+@transaction.atomic
 def claim():
     # Conditional write is the DB-level compare-and-swap; Python checks are not locks.
     for pk in ETLExecution.objects.filter(status='PENDING').order_by('created_at').values_list('pk', flat=True):

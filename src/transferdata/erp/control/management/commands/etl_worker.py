@@ -12,9 +12,19 @@ from transferdata.erp.control.services import claim, execute, recover_interrupte
 from transferdata.web.maintenance import worker_paused
 from transferdata.erp.control.onec import scan_next
 from transferdata.erp.control.models import OneCScan
+from transferdata.erp.control.worker_diagnostics import record
 
 class Command(BaseCommand):
     help = 'Single local worker; OS lock is released automatically on process death.'
+
+    def execute(self, *args, **options):
+        self.phase = 'startup'
+        try:
+            return super().execute(*args, **options)
+        except Exception as exc:
+            record('failed', self.phase, type(exc).__name__)
+            raise
+
     def add_arguments(self, parser):
         parser.add_argument('--once', action='store_true')
         parser.add_argument('--poll', type=float, default=2)
@@ -44,48 +54,60 @@ class Command(BaseCommand):
             OneCScan.objects.filter(status='RUNNING').update(status='FAILED', finished_at=timezone.now(),
                 message='Чтение метаданных прервано остановкой обработчика. Повторите чтение.')
             owner = str(uuid.uuid4())
+            record('started', 'startup')
             self.stdout.write('ERP_to_DWH worker started')
             last_schedule_check = 0
             while True:
-                close_old_connections()
-                # Report liveness even while maintenance blocks new work.
-                WorkerLease.objects.update_or_create(pk=1, defaults={'owner': owner, 'heartbeat': timezone.now()})
-                if worker_paused("erp"):
+                self.phase = 'poll'
+                try:
+                    close_old_connections()
+                    # Report liveness even while maintenance blocks new work.
+                    WorkerLease.objects.update_or_create(pk=1, defaults={'owner': owner, 'heartbeat': timezone.now()})
+                    if worker_paused("erp"):
+                        if options['once']:
+                            return
+                        time.sleep(2)
+                        continue
+                    if time.monotonic() - last_schedule_check >= 30:
+                        enqueue_due_jobs()
+                        last_schedule_check = time.monotonic()
+                    # claim is atomic: an unsuccessful DB read rolls back claiming a job.
+                    execution = claim()
+                except OperationalError as exc:
+                    record('retrying', 'poll', type(exc).__name__)
+                    close_old_connections()
                     if options['once']:
-                        return
-                    time.sleep(2)
+                        raise
+                    time.sleep(min(30, max(2, options['poll'])))
                     continue
-                if time.monotonic() - last_schedule_check >= 30:
-                    enqueue_due_jobs()
-                    last_schedule_check = time.monotonic()
-                execution = claim()
                 scanned = False
-                if execution or OneCScan.objects.filter(status='PENDING').exists():
-                    stop = threading.Event()
-                    def heartbeat():
-                        close_old_connections()
-                        try:
-                            while not stop.wait(10):
-                                try:
-                                    now = timezone.now()
-                                    if execution:
-                                        ETLExecution.objects.filter(pk=execution.pk, status='RUNNING').update(heartbeat=now)
-                                    WorkerLease.objects.filter(pk=1, owner=owner).update(heartbeat=now)
-                                except OperationalError:
-                                    # SQLite may briefly be busy; progress updates also send heartbeats.
-                                    pass
-                        finally:
-                            close_old_connections()
-                    thread = threading.Thread(target=heartbeat, daemon=True)
-                    thread.start()
+                # No extra DB query after claiming; scan_next safely checks its own queue.
+                stop = threading.Event()
+                def heartbeat():
+                    close_old_connections()
                     try:
-                        if execution:
-                            execute(execution)
-                        else:
-                            scanned = scan_next()
+                        while not stop.wait(10):
+                            try:
+                                now = timezone.now()
+                                if execution:
+                                    ETLExecution.objects.filter(pk=execution.pk, status='RUNNING').update(heartbeat=now)
+                                WorkerLease.objects.filter(pk=1, owner=owner).update(heartbeat=now)
+                            except OperationalError as exc:
+                                record('retrying', 'heartbeat', type(exc).__name__)
+                                close_old_connections()
                     finally:
-                        stop.set()
-                        thread.join(timeout=35)
+                        close_old_connections()
+                thread = threading.Thread(target=heartbeat, daemon=True)
+                thread.start()
+                try:
+                    self.phase = 'execute' if execution else 'metadata'
+                    if execution:
+                        execute(execution)
+                    else:
+                        scanned = scan_next()
+                finally:
+                    stop.set()
+                    thread.join(timeout=35)
                 if options['once']:
                     return
                 if not execution and not scanned:

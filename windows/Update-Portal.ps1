@@ -66,6 +66,17 @@ function Restore-TaskStates {
     }
 }
 
+function Set-ERPWorkerSettings {
+    param([string]$Name)
+    # Preserve the account, action, triggers and enabled state of the installed task.
+    $erpTask = Get-ScheduledTask -TaskName $Name -TaskPath $TaskPath
+    $erpTask.Settings.ExecutionTimeLimit = 'PT0S'
+    $erpTask.Settings.RestartCount = 999
+    $erpTask.Settings.RestartInterval = 'PT1M'
+    $erpTask.Settings.MultipleInstances = 'IgnoreNew'
+    Set-ScheduledTask -InputObject $erpTask | Out-Null
+}
+
 function Test-TaskRunning {
     param([string]$Name)
     $fullName = $TaskPath.TrimEnd('\') + '\' + $Name
@@ -203,6 +214,7 @@ try {
     if (Test-Path (Join-Path $state "onec-helper.json")) {
         Invoke-Checked "powershell.exe" @("-NoProfile", "-NonInteractive", "-File", (Join-Path $projectRoot "windows\Install-1CMetadata.ps1"), "-UseExisting")
     }
+    Set-ERPWorkerSettings -Name $modes['erp-worker']
     Write-UpdateStatus "restart" 10
     $serviceStart = [DateTime]::UtcNow.ToString('o')
     Restore-TaskStates -StartEnabled
