@@ -69,3 +69,13 @@ def test_reference_values_keep_ids_presentations_and_document_fields():
     for name in ('Заказ', 'ЗаказСсылка', 'ЗаказДата', 'ЗаказНомер', 'Заказ__Identity', 'Заказ__TypeCode'):
         assert ' AS [' + name + ']' in sql
     assert '= 0x0000007B' in sql and '= 0x08' in sql
+
+
+def test_individual_command_keeps_separate_defaults():
+    from transferdata.erp.control.management.commands.prepare_individual_attributes import Command
+    command = Command()
+    options = vars(command.create_parser('manage', 'prepare_individual_attributes').parse_args([]))
+    assert options['object'] == 'Справочник.ФизическиеЛица'
+    assert options['target_table'] == 'IndividualsExpanded'
+    assert options['output'] == '.state/IndividualsExpanded.sql'
+    assert command.object_label == 'Физические лица'

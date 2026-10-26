@@ -13,6 +13,7 @@ from transferdata.erp.reports.additional_attributes import parts, prop, discover
 
 
 class Command(BaseCommand):
+    object_label = 'Сотрудники'
     help = 'Prepare employee export with all used additional properties as named columns; source is read-only.'
 
     def add_arguments(self, parser):
@@ -32,7 +33,7 @@ class Command(BaseCommand):
             raise CommandError('SQL-файл уже существует. Укажите другое имя через --output.')
         fingerprint = connection_fingerprint(source)
         try:
-            self.stdout.write('[1/3] Читаем сотрудников и структуру дополнительных реквизитов…')
+            self.stdout.write(f'[1/3] Читаем {options["object"]} и структуру дополнительных реквизитов…')
             root = read_metadata(source, options['object'], include_table_parts=True)
             references = prop(parts(root), 'Свойство').get('references', [])
             if len(references) != 1:
@@ -40,7 +41,7 @@ class Command(BaseCommand):
             definitions = read_metadata(source, references[0])
             if (root.get('configuration'), root.get('version')) != (definitions.get('configuration'), definitions.get('version')):
                 raise CommandError('Конфигурация изменилась во время чтения. Повторите подготовку.')
-            self.stdout.write('[2/3] Читаем названия свойств, используемых сотрудниками…')
+            self.stdout.write('[2/3] Читаем названия дополнительных свойств объекта…')
             with connect(source) as database:
                 cursor = database.cursor()
                 try:
@@ -67,10 +68,10 @@ class Command(BaseCommand):
             with transaction.atomic():
                 job = None
                 if target:
-                    job = ETLJob(name='Сотрудники · все дополнительные реквизиты', source_connection=source,
+                    job = ETLJob(name=self.object_label + ' · все дополнительные реквизиты', source_connection=source,
                         target_connection=target, source_type='SQL_QUERY', sql_query=sql,
                         target_schema=options['target_schema'], target_table=options['target_table'], schedule_enabled=False,
-                        description='Одна строка на сотрудника. Все используемые дополнительные свойства; исходные компоненты и ссылки сохранены. Новые свойства требуют повторной подготовки SELECT. Повтор свойства у сотрудника вызывает ошибку вместо потери значения.')
+                        description='Одна строка на объект справочника. Все используемые дополнительные свойства; исходные компоненты и ссылки сохранены. Новые свойства требуют повторной подготовки SELECT. Повтор свойства у объекта вызывает ошибку вместо потери значения.')
                     job.full_clean(); job.save()
                     ETLAuditLog.objects.create(object_type='ETLJob', object_id=job.pk, action='create')
                 output.parent.mkdir(parents=True, exist_ok=True)
