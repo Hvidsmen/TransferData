@@ -58,9 +58,10 @@ function Invoke-Checked {
 }
 
 function Restore-TaskStates {
+    param([switch]$StartEnabled)
     foreach ($item in $changed) {
         if ($item.Enabled -or $item.Running) { Enable-ScheduledTask -TaskName $item.Name -TaskPath $TaskPath | Out-Null }
-        if ($item.Running -and -not (Test-TaskRunning $item.Name)) { Start-ScheduledTask -TaskName $item.Name -TaskPath $TaskPath }
+        if (($item.Running -or ($StartEnabled -and $item.Enabled)) -and -not (Test-TaskRunning $item.Name)) { Start-ScheduledTask -TaskName $item.Name -TaskPath $TaskPath }
         if (-not $item.Enabled) { Disable-ScheduledTask -TaskName $item.Name -TaskPath $TaskPath | Out-Null }
     }
 }
@@ -203,11 +204,11 @@ try {
         Invoke-Checked "powershell.exe" @("-NoProfile", "-NonInteractive", "-File", (Join-Path $projectRoot "windows\Install-1CMetadata.ps1"), "-UseExisting")
     }
     Write-UpdateStatus "restart" 10
-    Restore-TaskStates
+    Restore-TaskStates -StartEnabled
     Remove-Item -LiteralPath $flag
     $flagCreated = $false
     Write-UpdateStatus "complete" 11 "success"
-    Write-Host "ETL Dev updated. Previously running tasks were restarted."
+    Write-Host "ETL Dev updated. All enabled services were started; disabled services remain disabled."
 } catch {
     if (-not $mutationStarted) {
         if ($flagCreated) { Remove-Item -LiteralPath $flag -ErrorAction SilentlyContinue; $flagCreated = $false }

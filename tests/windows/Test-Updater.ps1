@@ -32,5 +32,8 @@ function Start-ScheduledTask {param($TaskName,$TaskPath) $script:calls+='start:'
 function Disable-ScheduledTask {param($TaskName,$TaskPath) $script:calls+='disable:'+ $TaskName}
 Restore-TaskStates
 if(($script:calls -join ',') -ne 'enable:Web,start:Web,enable:SQL,disable:ERP'){throw 'Original service states were not preserved'}
+$script:calls=@()
+Restore-TaskStates -StartEnabled
+if(($script:calls -join ',') -ne 'enable:Web,start:Web,enable:SQL,start:SQL,disable:ERP'){throw 'Enabled idle services were not started after success'}
 Remove-Item -LiteralPath $StatusFile -ErrorAction SilentlyContinue
 Write-Output 'Progress persistence, failed recovery marker and task-state restoration passed (mock scheduler).'
