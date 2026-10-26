@@ -24,6 +24,7 @@ class Command(BaseCommand):
         parser.add_argument('--target-table', default='EmployeesExpanded')
         parser.add_argument('--output', default='.state/EmployeesExpanded.sql')
         parser.add_argument('--create-job', action='store_true')
+        parser.add_argument('--with-contacts', action='store_true', help='Append email, phones and complete contact rows.')
 
     def handle(self, *args, **options):
         source = PaymentCommand.pick(options['connection'], source=True)
@@ -58,6 +59,9 @@ class Command(BaseCommand):
                         raise CommandError('Названия одного свойства различаются по областям данных; нужна отдельная выгрузка областей.')
                     names[key] = name
                 sql = generate(root, list(names.items()))
+                if options['with_contacts']:
+                    from transferdata.erp.reports.individual_contacts import generate as contact_query
+                    sql = contact_query(root, sql)
                 self.stdout.write('[3/3] Проверяем SELECT и названия колонок…')
                 columns = describe(database, sql)
             source.refresh_from_db()
@@ -68,10 +72,10 @@ class Command(BaseCommand):
             with transaction.atomic():
                 job = None
                 if target:
-                    job = ETLJob(name=self.object_label + ' · все дополнительные реквизиты', source_connection=source,
+                    job = ETLJob(name=self.object_label + (' · реквизиты и контакты' if options['with_contacts'] else ' · все дополнительные реквизиты'), source_connection=source,
                         target_connection=target, source_type='SQL_QUERY', sql_query=sql,
                         target_schema=options['target_schema'], target_table=options['target_table'], schedule_enabled=False,
-                        description='Одна строка на объект справочника. Все используемые дополнительные свойства; исходные компоненты и ссылки сохранены. Новые свойства требуют повторной подготовки SELECT. Повтор свойства у объекта вызывает ошибку вместо потери значения.')
+                        description='Одна строка на объект справочника. Все используемые дополнительные свойства; исходные компоненты и ссылки сохранены. Новые свойства требуют повторной подготовки SELECT. Повтор свойства у объекта вызывает ошибку вместо потери значения.' + (' Email и Телефоны содержат все непустые значения; полные контактные строки сохранены в КонтактнаяИнформацияJSON.' if options['with_contacts'] else ''))
                     job.full_clean(); job.save()
                     ETLAuditLog.objects.create(object_type='ETLJob', object_id=job.pk, action='create')
                 output.parent.mkdir(parents=True, exist_ok=True)
