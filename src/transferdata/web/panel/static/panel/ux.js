@@ -114,7 +114,7 @@
     // Native validation cannot focus fields on other steps. Route to their step first.
     form.noValidate = true;
     form.addEventListener('submit', event => {
-      if (current !== used.length - 1) { event.preventDefault(); go(current + 1); return; }
+      if (current !== used.length - 1 && event.submitter?.name !== 'inspect_source') { event.preventDefault(); go(current + 1); return; }
       for (let index = 0; index < used.length - 1; index++) {
         current = index; render(); if (!validate(used[index])) { event.preventDefault(); return; }
       }

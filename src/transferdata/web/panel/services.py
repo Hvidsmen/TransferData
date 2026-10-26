@@ -5,6 +5,7 @@ from apscheduler.triggers.cron import CronTrigger
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import NoSuchTableError
 
 from transferdata.cli import engines, source_engine
 from transferdata.procedures import execute_procedure, ProcedureReturnCodeError
@@ -166,6 +167,11 @@ def execute_next():
         if run.details.get("steps"):
             run.details["steps"][-1]["status"] = "failed"
         run.message = f"{stage}: ошибка {type(exc).__name__}. Проверьте подключения, права, имена и типы столбцов."
+        if isinstance(exc, NoSuchTableError):
+            run.message = (f"Таблица источника {job['source_schema']}.{job['source_table']} не найдена "
+                "или недоступна для чтения в выбранной базе SQL Server. Проверьте подключение, схему, "
+                "точное физическое имя таблицы и права. Для объекта 1С используйте раздел «1С Перенос данных»; "
+                "название объекта 1С не является физическим именем SQL-таблицы.")
         diagnosis = diagnostic(exc) if run.action == "run" else None
         if diagnosis:
             explanation, details = diagnosis

@@ -59,7 +59,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     editor.querySelector(".mapping-reload").addEventListener("click", load);
     editor.querySelector(".mapping-add").addEventListener("click", () => add("", ""));
-    editor.querySelector(".mapping-source").addEventListener("click", () => {
+    const sourceButton = editor.querySelector(".mapping-source");
+    const hasColumns = JSON.parse(textarea.dataset.columns || "[]").length > 0;
+    sourceButton.disabled = !hasColumns;
+    sourceButton.title = hasColumns ? "Добавить столбцы из сохранённой структуры" : "Сначала сохраните задание и получите структуру";
+    sourceButton.addEventListener("click", () => {
       const columns = JSON.parse(textarea.dataset.columns || "[]");
       if (!columns.length) { alert("Сначала получите структуру источника и обновите форму."); return; }
       const current = JSON.parse(textarea.value || "{}");

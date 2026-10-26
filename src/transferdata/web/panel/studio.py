@@ -121,18 +121,27 @@ def edit(request, kind, pk=None):
     instance = get_object_or_404(model.objects.filter(is_deleted=False) if kind == "job" else model, pk=pk) if pk else None
     form = form_class(request.POST or None, instance=instance)
     if request.method == "POST" and form.is_valid():
+        inspect_requested = kind == "job" and request.POST.get("inspect_source") == "yes"
+        if inspect_requested and form.cleaned_data.get("job_type") == "procedure":
+            form.add_error(None, "Для процедуры получение структуры таблицы недоступно.")
+            return screen(request, "edit.html", section=section, title="Настройка задания", form=form, kind=kind)
         obj = form.save(commit=False)
         if kind == "job" and (not pk or {"cron", "timezone", "enabled"}.intersection(form.changed_data)):
             obj.next_run_at = None
         try:
             with transaction.atomic():
                 obj.save()
-                if kind == "job" and pk is None:
+                if inspect_requested:
+                    inspection, _ = enqueue(obj, "inspect")
+                elif kind == "job" and pk is None:
                     enqueue(obj, "check" if obj.job_type == "procedure" else "prepare")
         except ValidationError as exc:
             form.add_error(None, exc)
             return screen(request, "edit.html", section=section, title="Создание задания",
                           form=form, kind=kind)
+        if inspect_requested:
+            messages.success(request, "Настройки сохранены. Получение структуры поставлено в очередь; после завершения вернитесь в настройки задания.")
+            return redirect("td_run", pk=inspection.pk)
         if kind == "job" and pk is None:
             messages.success(request, "Задание процедуры создано. Проверка подключения поставлена в очередь; сама процедура запускается вручную или по расписанию." if obj.job_type == "procedure" else "Задание создано. Проверка подключений, получение структуры и создание таблицы поставлены в очередь. Результат — в истории запусков.")
             return redirect("td_history")

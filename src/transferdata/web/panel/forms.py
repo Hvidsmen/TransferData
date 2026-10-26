@@ -41,6 +41,12 @@ class JobForm(forms.ModelForm):
         if self.instance.pk:
             metadata = Run.objects.filter(job=self.instance, action__in=["inspect", "prepare"], status="success").first()
             if metadata:
+                previous = metadata.snapshot.get('jobs', [{}])[0]
+                current = self.instance.config()
+                if metadata.snapshot.get('source') != current.get('source') or any(
+                    previous.get(key) != current['jobs'][0].get(key) for key in ('source_schema', 'source_table')):
+                    metadata = None
+            if metadata:
                 self.fields["source_table"].widget.attrs["data-tables"] = json.dumps(
                     metadata.details.get("tables", []), ensure_ascii=True)
                 self.fields["columns"].widget.attrs["data-columns"] = json.dumps(

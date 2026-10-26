@@ -267,6 +267,29 @@ class PanelTests(TestCase):
             self.assertContains(self.client.post("/jobs/new/", data), "Maintenance")
         self.assertFalse(Job.objects.filter(name="new route").exists())
 
+    def test_edit_can_save_and_inspect_without_preparing_or_loading_target(self):
+        self.client.force_login(self.user)
+        data = {"name": "changed route", "connection": self.connection.pk,
+                "source_schema": "erp", "source_table": "ActualTable", "target_schema": "public",
+                "target_table": "example", "cron": "0 3 * * *", "timezone": "Europe/Moscow",
+                "batch_size": 1000, "columns": "{}", "inspect_source": "yes"}
+        response = self.client.post(f"/jobs/{self.job.pk}/edit/", data)
+        run = Run.objects.get(job=self.job)
+        self.assertEqual(run.action, "inspect")
+        self.assertRedirects(response, f"/runs/{run.pk}/")
+        self.assertEqual(run.snapshot['jobs'][0]['source_table'], 'ActualTable')
+
+    def test_mapping_does_not_reuse_structure_from_another_source_table(self):
+        from .forms import JobForm
+        run, _ = enqueue(self.job, 'inspect')
+        run.status = 'success'
+        run.details = {'columns': [{'name': 'old_column'}]}
+        run.save()
+        self.assertIn('data-columns', JobForm(instance=self.job).fields['columns'].widget.attrs)
+        self.job.source_table = 'AnotherTable'
+        self.job.save()
+        self.assertNotIn('data-columns', JobForm(instance=self.job).fields['columns'].widget.attrs)
+
     def setUp(self):
         self.connection = Connection.objects.create(name="Test", target_host="pg.test", target_database="analytics")
         self.job = Job.objects.create(name="contractors", connection=self.connection,
