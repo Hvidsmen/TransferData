@@ -344,3 +344,18 @@ def test_structure_page_expands_table_parts_and_named_attributes(client, obj, dj
     for expected in ('_Fld123', 'nvarchar(100)', 'Email__String', 'Дополнительные свойства'):
         assert expected in html
     reader.assert_not_called()
+
+
+def test_contact_storage_structure_is_visible_without_querying_erp(client, obj, administrator_user):
+    client.force_login(administrator_user)
+    obj.metadata['contact_discovery'] = {'sources': [{'name': 'КонтактнаяИнформация', 'table': '_Contacts',
+        'relationship': 'table_part', 'owner': obj.name, 'email_fields': ['АдресЭП'], 'fields': [
+            {'name': 'АдресЭП', 'columns': [{'name': '_Mail', 'type': 'nvarchar(100)'}], 'references': []}]}], 'warnings': []}
+    obj.save()
+    with patch('transferdata.erp.control.onec.read_metadata') as reader:
+        response = client.get(reverse('erp:onec_detail', args=[obj.pk]))
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert 'Контактная информация' in html and 'АдресЭП' in html and '_Mail' in html
+    assert 'ещё не добавлены' in html
+    reader.assert_not_called()

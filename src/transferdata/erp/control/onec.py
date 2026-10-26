@@ -174,6 +174,9 @@ def scan_next():
         if scan.object_id:
             from .onec_structure import enrich_attributes
             enrich_attributes(scan.connection, data)
+            if scan.object.name in ('Справочник.ФизическиеЛица', 'Справочник.Сотрудники'):
+                from .onec_contacts import discover_contacts
+                data['contact_discovery'] = discover_contacts(scan.connection, data)
         OneCScan.objects.filter(pk=scan.pk).update(phase='SAVING')
         with transaction.atomic():
             current = DatabaseConnection.objects.select_for_update().get(pk=scan.connection_id)
