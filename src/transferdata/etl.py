@@ -3,7 +3,7 @@ from time import monotonic
 
 from sqlalchemy import MetaData, Table, func, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, NoSuchTableError
 from .transfer_errors import TransferDataError, diagnostic, validate_postgres_text
 
 
@@ -40,14 +40,22 @@ def transfer(
         raise ValueError("batch_size must be a positive integer")
 
     with source_engine.connect() as source, target_engine.begin() as target:
-        source_table = Table(
-            job["source_table"], MetaData(),
-            schema=job.get("source_schema"), autoload_with=source,
-        )
-        target_table = Table(
-            job["target_table"], MetaData(),
-            schema=job.get("target_schema"), autoload_with=target,
-        )
+        try:
+            source_table = Table(
+                job["source_table"], MetaData(),
+                schema=job.get("source_schema"), autoload_with=source,
+            )
+        except NoSuchTableError as exc:
+            exc.transfer_side = "source"
+            raise
+        try:
+            target_table = Table(
+                job["target_table"], MetaData(),
+                schema=job.get("target_schema"), autoload_with=target,
+            )
+        except NoSuchTableError as exc:
+            exc.transfer_side = "target"
+            raise
         # Optional explicit mapping supports Cyrillic source / Latin target names.
         mapping = job.get("columns") or {c.name: c.name for c in source_table.columns}
         if len(set(mapping.values())) != len(mapping):

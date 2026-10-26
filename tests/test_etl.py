@@ -193,3 +193,16 @@ def test_progress_counts_do_not_publish_uncommitted_data(tables):
     assert result.rows == 2
     assert [count for count, _ in observations] == [0, 1, 2, 2]
     assert contents(dst, target) == [(1, "First"), (2, "Second")]
+
+
+def test_missing_tables_report_correct_side_before_any_data_change(tables):
+    from sqlalchemy.exc import NoSuchTableError
+    src, dst, _, destination = tables
+    before = contents(dst, destination)
+    with pytest.raises(NoSuchTableError) as source_error:
+        transfer(src, dst, job(source_table='missing_source'))
+    assert source_error.value.transfer_side == 'source'
+    with pytest.raises(NoSuchTableError) as target_error:
+        transfer(src, dst, job(target_table='missing_target'))
+    assert target_error.value.transfer_side == 'target'
+    assert contents(dst, destination) == before

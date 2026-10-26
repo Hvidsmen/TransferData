@@ -290,6 +290,19 @@ class PanelTests(TestCase):
         self.job.save()
         self.assertNotIn('data-columns', JobForm(instance=self.job).fields['columns'].widget.attrs)
 
+    def test_missing_destination_is_not_reported_as_missing_source(self):
+        from sqlalchemy.exc import NoSuchTableError
+        error = NoSuchTableError('do not expose driver details')
+        error.transfer_side = 'target'
+        run, _ = enqueue(self.job, 'run')
+        with patch('transferdata.web.panel.services.engines', return_value=(MagicMock(), MagicMock())), patch('transferdata.web.panel.services.transfer', side_effect=error):
+            execute_next()
+        run.refresh_from_db()
+        self.assertEqual(run.details['missing_table_side'], 'target')
+        self.assertIn('Таблица назначения', run.message)
+        self.assertNotIn('Таблица источника', run.message)
+        self.assertNotIn('driver details', run.message)
+
     def setUp(self):
         self.connection = Connection.objects.create(name="Test", target_host="pg.test", target_database="analytics")
         self.job = Job.objects.create(name="contractors", connection=self.connection,

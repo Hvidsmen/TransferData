@@ -168,10 +168,21 @@ def execute_next():
             run.details["steps"][-1]["status"] = "failed"
         run.message = f"{stage}: ошибка {type(exc).__name__}. Проверьте подключения, права, имена и типы столбцов."
         if isinstance(exc, NoSuchTableError):
-            run.message = (f"Таблица источника {job['source_schema']}.{job['source_table']} не найдена "
-                "или недоступна для чтения в выбранной базе SQL Server. Проверьте подключение, схему, "
-                "точное физическое имя таблицы и права. Для объекта 1С используйте раздел «1С Перенос данных»; "
-                "название объекта 1С не является физическим именем SQL-таблицы.")
+            side = getattr(exc, "transfer_side", "source" if run.action in {"inspect", "prepare"} else "unknown")
+            run.details['missing_table_side'] = side
+            if side == "target":
+                run.message = (f"Таблица назначения {job['target_schema']}.{job['target_table']} не найдена "
+                    "или недоступна. В списке заданий откройте «Ещё → Создать таблицу», "
+                    "дождитесь успешного завершения и повторите загрузку. Если таблица уже существует, "
+                    "проверьте базу, схему, точное имя и права в подключении PostgreSQL.")
+            elif side == "source":
+                run.message = (f"Таблица источника {job['source_schema']}.{job['source_table']} не найдена "
+                    "или недоступна для чтения в выбранной базе SQL Server. Проверьте подключение, схему, "
+                    "точное физическое имя таблицы и права.")
+            else:
+                run.message = ("Не удалось найти таблицу при подготовке переноса. Проверьте таблицу "
+                    f"источника {job['source_schema']}.{job['source_table']} и назначения "
+                    f"{job['target_schema']}.{job['target_table']}. Сторона ошибки не определена.")
         diagnosis = diagnostic(exc) if run.action == "run" else None
         if diagnosis:
             explanation, details = diagnosis
