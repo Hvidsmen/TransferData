@@ -49,5 +49,12 @@ function Set-ScheduledTask {param($InputObject) $script:configuredERP=$InputObje
 Set-ERPWorkerSettings -Name 'ERP'
 if($script:configuredERP.Settings.ExecutionTimeLimit -ne 'PT0S' -or $script:configuredERP.Settings.RestartCount -ne 999 -or $script:configuredERP.Settings.RestartInterval -ne 'PT1M'){throw 'ERP persistent-worker recovery settings missing'}
 if($script:configuredERP.Settings.Enabled -or $script:configuredERP.Principal -ne 'original-account' -or $script:configuredERP.Actions -ne 'original-action'){throw 'ERP identity/action/enabled state changed'}
+$script:mockERP=[pscustomobject]@{Settings=[pscustomobject]@{Enabled=$true;ExecutionTimeLimit='PT72H';RestartCount=0;RestartInterval='PT0M';MultipleInstances='IgnoreNew'};Principal=[pscustomobject]@{LogonType='Password'}}
+$script:configuredERP=$null
+Set-ERPWorkerSettings -Name 'ERP' -WarningAction SilentlyContinue
+if($null -ne $script:configuredERP -or $script:mockERP.Settings.ExecutionTimeLimit -ne 'PT72H'){throw 'Password task was rewritten without credentials'}
+$script:mockERP.Principal.LogonType='S4U'
+function Set-ScheduledTask {param($InputObject,$ErrorAction) throw 'credential failure'}
+Set-ERPWorkerSettings -Name 'ERP' -WarningAction SilentlyContinue
 Remove-Item -LiteralPath $StatusFile -ErrorAction SilentlyContinue
 Write-Output 'Progress persistence, failed recovery marker and task-state restoration passed (mock scheduler).'

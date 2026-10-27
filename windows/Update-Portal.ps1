@@ -70,11 +70,22 @@ function Set-ERPWorkerSettings {
     param([string]$Name)
     # Preserve the account, action, triggers and enabled state of the installed task.
     $erpTask = Get-ScheduledTask -TaskName $Name -TaskPath $TaskPath
+    if ($erpTask.Settings.ExecutionTimeLimit -eq 'PT0S' -and
+        $erpTask.Settings.RestartCount -eq 999 -and
+        $erpTask.Settings.RestartInterval -eq 'PT1M' -and
+        [string]$erpTask.Settings.MultipleInstances -eq 'IgnoreNew') { return }
+    if ([string]$erpTask.Principal.LogonType -in @('Password', '1')) {
+        Write-Warning "ERP recovery settings need a one-time change in Task Scheduler. Password-logon tasks cannot be rewritten without credentials. Existing task and credentials are unchanged."
+        return
+    }
     $erpTask.Settings.ExecutionTimeLimit = 'PT0S'
     $erpTask.Settings.RestartCount = 999
     $erpTask.Settings.RestartInterval = 'PT1M'
     $erpTask.Settings.MultipleInstances = 'IgnoreNew'
-    Set-ScheduledTask -InputObject $erpTask | Out-Null
+    try { Set-ScheduledTask -InputObject $erpTask -ErrorAction Stop | Out-Null }
+    catch {
+        Write-Warning "ERP recovery settings were not changed. Configure no execution time limit and restart on failure in Task Scheduler. Service startup will still be verified."
+    }
 }
 
 function Test-TaskRunning {
