@@ -1,7 +1,7 @@
 {% extends "admin/index.html" %}
 {% load humanize %}
 {% block content_title %}{% endblock %}
-{% block content %}
+{% block content %}{% if not sql_enabled %}<h1>{{ portal_name }}</h1><p>1С и Python · администрирование</p><p><a href="{% url 'etl_portal' %}">Общий обзор</a> · <a href="{% url 'portal_update' %}">Обновление портала</a></p>{% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}{% else %}
 <div class="td-dashboard">
   <div class="td-heading">
     <div><p class="td-eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</p><h1>Данные под контролем</h1>
@@ -34,4 +34,4 @@
   <details class="td-management"><summary>Все разделы и управление доступом</summary>{{ block.super }}</details>
 </div>
 {% endblock %}
-{% block sidebar %}{% endblock %}
+{% block sidebar %}{% endif %}{% endblock %}

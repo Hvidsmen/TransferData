@@ -36,12 +36,15 @@ def worker_heartbeat(name):
 
 
 def worker_health():
+    from django.conf import settings
     from transferdata.erp.control.models import WorkerLease
     lease = WorkerLease.objects.filter(pk=1).first()
     now = timezone.now()
     result = []
     for key, label, task, filename in [('sql', 'SQL', 'TransferData', 'sql-worker.heartbeat'),
         ('onec', '1С', 'ERP', None), ('python', 'Python', 'Python', 'python-worker.heartbeat')]:
+        if key not in settings.PORTAL_WORKERS:
+            continue
         stamp = lease.heartbeat if filename is None and lease else None
         if filename:
             try:
@@ -51,13 +54,13 @@ def worker_health():
         age = (now - stamp).total_seconds() if stamp and timezone.is_aware(stamp) else None
         online = age is not None and -5 <= age <= 60
         paused = is_paused()
-        result.append({'key': key, 'name': label, 'task': 'ETL Dev — ' + task,
+        result.append({'key': key, 'name': label, 'task': settings.PORTAL_TASK_PREFIX + ' — ' + task,
             'online': online, 'heartbeat': stamp if age is not None else None,
             'state': 'paused' if paused else 'online' if online else 'unknown',
             'label': 'Обновление портала' if paused else 'Работает' if online else 'Нет свежего сигнала',
             'hint': 'Приём заданий приостановлен на время обновления.' if paused else
                 'Свежий сигнал обработчика получен.' if online else
-                'Проверьте задачу «ETL Dev — ' + task + '» в планировщике Windows.'})
+                'Проверьте задачу «' + settings.PORTAL_TASK_PREFIX + ' — ' + task + '» в планировщике Windows.'})
     return result
 
 

@@ -1,16 +1,17 @@
 # Run once elevated as the same Windows account used by the ETL Dev tasks.
 [CmdletBinding()]
-param()
+param([System.Management.Automation.PSCredential]$Credential)
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Portal-Profile.ps1')
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "Run PowerShell as administrator." }
-$name = "ETL Dev $([char]0x2014) Update"
+$name = "$portalTaskPrefix $([char]0x2014) Update"
 if (Get-ScheduledTask -TaskName $name -TaskPath "\" -ErrorAction SilentlyContinue) {
     throw "Updater task already exists. No task was replaced."
 }
-$credential = Get-Credential -UserName $identity.Name -Message "Windows account for unattended ETL Dev updates"
+if ($null -eq $Credential) { $Credential = Get-Credential -UserName $identity.Name -Message "Windows account for unattended portal updates" }
 if ($null -eq $credential) { throw "Installation cancelled." }
 $created = $false
 try {

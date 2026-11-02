@@ -46,6 +46,8 @@ class Job(models.Model):
         if not isinstance(self.parameters, dict) or len(encoded.encode('utf-8')) > 65536:
             raise ValidationError({'parameters': 'Нужен JSON-объект не больше 64 КБ.'})
         if self.handler == 'commercial_headers':
+            if settings.DEPLOYMENT['profile'] == 'yds':
+                raise ValidationError({'handler': 'В этой установке используйте собственный Python-файл.'})
             validate_parameters(self.parameters)
             if not self.connection_id or not self.connection.is_active:
                 raise ValidationError({'connection': 'Выберите активное подключение к DataWH с правами чтения и записи заголовков.'})

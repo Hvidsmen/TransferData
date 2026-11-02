@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.conf import settings
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from django.contrib.auth.models import Group, User
@@ -11,14 +12,22 @@ from .services import enqueue
 
 
 class PanelSite(admin.AdminSite):
-    site_header = "ETL Dev · SQL Перенос данных"
-    site_title = "ETL Dev"
+    site_header = settings.PORTAL_NAME
+    site_title = settings.PORTAL_NAME
     index_title = "Обзор"
     index_template = "panel/index.html"
 
+    def get_app_list(self, request, app_label=None):
+        apps = super().get_app_list(request, app_label)
+        if 'sql' not in settings.PORTAL_WORKERS:
+            for app in apps:
+                if app['app_label'] == 'panel':
+                    app['models'] = [m for m in app['models'] if m['object_name'] == 'JobGroup']
+        return [a for a in apps if a['models']]
+
     def index(self, request, extra_context=None):
         stats = None
-        if request.user.has_perm("panel.view_run"):
+        if "sql" in settings.PORTAL_WORKERS and request.user.has_perm("panel.view_run"):
             stats = {"queued": Run.objects.filter(status="queued").count(),
                      "running": Run.objects.filter(status="running").count(),
                      "failed": Run.objects.filter(status="failed").count(),

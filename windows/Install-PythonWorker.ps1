@@ -3,8 +3,9 @@
 param()
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Portal-Profile.ps1')
 $dash = [char]0x2014
-$name = "ETL Dev $dash Python"
+$name = "$portalTaskPrefix $dash Python"
 if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
     throw "Python task already exists. No task was replaced."
 }

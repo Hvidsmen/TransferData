@@ -9,6 +9,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Portal-Profile.ps1')
 Set-Location $projectRoot
 $state = Join-Path $projectRoot ".state"
 $flag = Join-Path $state "maintenance.flag"
@@ -103,11 +104,13 @@ try {
     if (Test-Path $flag) { throw "A maintenance flag already exists. Review the previous update before continuing." }
     if (-not $TaskName.Count) {
         $dash = [char]0x2014
-        $TaskName = @("ETL Dev $dash Web", "ETL Dev $dash TransferData", "ETL Dev $dash ERP")
-        $pythonTask = Get-ScheduledTask -TaskName "ETL Dev $dash Python" -TaskPath $TaskPath -ErrorAction SilentlyContinue
-        if ($pythonTask) { $TaskName += $pythonTask.TaskName }
+        $TaskName = @($portalPrimaryTasks | ForEach-Object { "$portalTaskPrefix $dash $_" })
+        if (-not $portalIsYds) {
+            $pythonTask = Get-ScheduledTask -TaskName "$portalTaskPrefix $dash Python" -TaskPath $TaskPath -ErrorAction SilentlyContinue
+            if ($pythonTask) { $TaskName += $pythonTask.TaskName }
+        }
     }
-    if ($TaskName.Count -lt 3 -or $TaskName.Count -gt 4) { throw "Specify web, TransferData, ERP and optionally Python task names." }
+    if ($TaskName.Count -lt 3 -or $TaskName.Count -gt 4) { throw "Specify the enabled portal service task names (3 or 4 tasks)." }
     $tasks = @($TaskName | ForEach-Object { Get-ScheduledTask -TaskName $_ -TaskPath $TaskPath -ErrorAction Stop })
     $scheduler = New-Object -ComObject Schedule.Service
     $scheduler.Connect()
@@ -127,9 +130,10 @@ try {
         if ($modes.ContainsKey($Matches[1])) { throw "Duplicate task mode: $($Matches[1])." }
         $modes[$Matches[1]] = $task.TaskName
     }
-    foreach ($required in @("web", "worker", "erp-worker")) {
+    foreach ($required in $portalRequiredModes) {
         if (-not $modes.ContainsKey($required)) { throw "Required task mode is missing: $required." }
     }
+    if ($portalIsYds -and $modes.ContainsKey('worker')) { throw 'SQL transfer worker is disabled in the YDS profile.' }
     $branch = (& git branch --show-current).Trim()
     if ($LASTEXITCODE -ne 0 -or $branch -ne "main") { throw "Update must run from the main branch." }
     Write-UpdateStatus "fetch" 1
@@ -250,7 +254,7 @@ try {
     Remove-Item -LiteralPath $flag
     $flagCreated = $false
     Write-UpdateStatus "complete" 11 "success"
-    Write-Host "ETL Dev updated. All enabled services were started; disabled services remain disabled."
+    Write-Host "$portalTaskPrefix updated. All enabled services were started; disabled services remain disabled."
 } catch {
     if (-not $mutationStarted) {
         if ($flagCreated) { Remove-Item -LiteralPath $flag -ErrorAction SilentlyContinue; $flagCreated = $false }

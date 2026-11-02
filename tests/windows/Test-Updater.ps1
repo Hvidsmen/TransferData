@@ -2,7 +2,7 @@
 $ErrorActionPreference='Stop'
 $tokens=$null;$errors=$null
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-foreach ($name in @('Update-Portal.ps1','Install-PortalUpdater.ps1','Invoke-PortalUpdate.ps1')) {
+foreach ($name in @('Update-Portal.ps1','Install-PortalUpdater.ps1','Invoke-PortalUpdate.ps1','Start-Panel.ps1','Install-PythonWorker.ps1','Portal-Profile.ps1','Install-YDS.ps1')) {
  [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $repo ('windows/' + $name)),[ref]$tokens,[ref]$errors)|Out-Null
  if($errors.Count){throw ($errors|Out-String)}
 }
@@ -56,5 +56,16 @@ if($null -ne $script:configuredERP -or $script:mockERP.Settings.ExecutionTimeLim
 $script:mockERP.Principal.LogonType='S4U'
 function Set-ScheduledTask {param($InputObject,$ErrorAction) throw 'credential failure'}
 Set-ERPWorkerSettings -Name 'ERP' -WarningAction SilentlyContinue
+$savedProjectRoot=$projectRoot
+$projectRoot=Join-Path ([IO.Path]::GetTempPath()) ('etl-yds-profile-'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force (Join-Path $projectRoot '.state')|Out-Null
+. (Join-Path $repo 'windows/Portal-Profile.ps1')
+if($portalTaskPrefix -ne 'ETL Dev' -or $portalIsYds -or $portalRequiredModes -notcontains 'worker'){throw 'Default profile changed'}
+@{version=1;profile='yds'}|ConvertTo-Json|Set-Content (Join-Path $projectRoot '.state/deployment.json') -Encoding UTF8
+. (Join-Path $repo 'windows/Portal-Profile.ps1')
+if($portalTaskPrefix -ne 'etl-dev-yds' -or -not $portalIsYds -or $portalRequiredModes -contains 'worker' -or $portalRequiredModes -notcontains 'python-worker'){throw 'YDS task requirements are wrong'}
+if(($portalPrimaryTasks -join ',') -ne 'Web,ERP,Python' -or $portalAllowedHosts -match 'daichi|vm-dwh'){throw 'YDS inherited another company configuration'}
+Remove-Item -LiteralPath $projectRoot -Recurse -Force
+$projectRoot=$savedProjectRoot
 Remove-Item -LiteralPath $StatusFile -ErrorAction SilentlyContinue
 Write-Output 'Progress persistence, failed recovery marker and task-state restoration passed (mock scheduler).'

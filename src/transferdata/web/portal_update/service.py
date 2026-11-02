@@ -34,7 +34,7 @@ def configured():
         return False
     try:
         data = json.loads((settings.STATE_DIR / 'portal-updater.json').read_text(encoding='utf-8-sig'))
-        return data['version'] == 1 and data['task_name'] == TASK and Path(data['project_root']).resolve() == settings.STATE_DIR.parent.resolve()
+        return data['version'] == 1 and data['task_name'] == settings.PORTAL_TASK_PREFIX + ' — Update' and Path(data['project_root']).resolve() == settings.STATE_DIR.parent.resolve()
     except (OSError, ValueError, KeyError, TypeError):
         return False
 
@@ -81,7 +81,8 @@ def enqueue(user):
         atomic_json(directory / 'request.json', {'version':1,'id':run_id, 'requested_at':now,
             'requested_by':user.username,'user_id':user.pk})
         requested = True
-        subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',START],
+        start = START.replace("'ETL Dev '", "'" + settings.PORTAL_TASK_PREFIX.replace("'", "''") + " '")
+        subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',start],
             capture_output=True, check=True, timeout=20,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         return run_id
@@ -98,4 +99,4 @@ def enqueue(user):
             state['events'].append({'phase':'launch_failed','at':state['updated_at']})
             atomic_json(directory / 'runs' / (run_id + '.json'), state)
         lock.unlink(missing_ok=True)
-        raise UpdateError('Не удалось запустить задачу «ETL Dev — Update». Проверьте установку, включение задачи и права её запуска. Текст системной ошибки не публикуется.') from None
+        raise UpdateError(f'Не удалось запустить задачу «{settings.PORTAL_TASK_PREFIX} — Update». Проверьте установку, включение задачи и права её запуска. Текст системной ошибки не публикуется.') from None

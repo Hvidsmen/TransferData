@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django import forms
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import permission_required
@@ -34,7 +35,7 @@ def screen(request, template, **context):
 @staff_member_required(login_url="admin:login")
 def portal(request):
     from .portal_monitoring import overview
-    return screen(request, "portal.html", section="portal", subsystem=None, title="Портал ETL Dev", **overview(request))
+    return screen(request, "portal.html", section="portal", subsystem=None, title="Портал " + settings.PORTAL_NAME, **overview(request))
 
 
 @staff_member_required(login_url="admin:login")

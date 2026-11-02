@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count
@@ -23,7 +24,7 @@ def scan_context(connection):
         if worker_paused('erp'):
             warning = 'Обработчик приостановлен для обновления портала. Чтение начнётся после возобновления.'
         elif not lease or not lease.heartbeat or lease.heartbeat < timezone.now() - timedelta(seconds=60):
-            warning = 'Нет свежего сигнала ERP-worker. Проверьте, что задача «ETL Dev — ERP» запущена в планировщике Windows.'
+            warning = f'Нет свежего сигнала ERP-worker. Проверьте, что задача «{settings.PORTAL_TASK_PREFIX} — ERP» запущена в планировщике Windows.'
         elif ETLExecution.objects.filter(status='RUNNING').exists():
             warning = 'ERP-worker выполняет загрузку. Чтение метаданных начнётся после её завершения.'
         else:

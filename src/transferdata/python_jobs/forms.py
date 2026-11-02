@@ -1,4 +1,5 @@
 from django import forms
+from django.conf import settings
 from transferdata.web.schedule_widget import ScheduleWidget
 from transferdata.erp.control.models import DatabaseConnection
 from .models import Job
@@ -16,4 +17,9 @@ class JobForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if settings.DEPLOYMENT['profile'] == 'yds':
+            self.fields['handler'].choices = [('script', 'Python-файл на сервере')]
+            self.fields['parameters'].help_text = 'JSON-объект передаётся скрипту через ETL_JOB_PARAMETERS.'
+            if not self.instance.pk:
+                self.initial['handler'] = 'script'
         self.fields['connection'].queryset = DatabaseConnection.objects.filter(is_active=True).order_by('name')

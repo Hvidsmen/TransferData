@@ -4,6 +4,11 @@ import secrets
 
 STATE_DIR = Path(os.environ.get("TRANSFERDATA_STATE_DIR", ".state")).resolve()
 STATE_DIR.mkdir(parents=True, exist_ok=True)
+from .deployment import load as load_deployment
+DEPLOYMENT = load_deployment(STATE_DIR)
+PORTAL_NAME = DEPLOYMENT['name']
+PORTAL_TASK_PREFIX = DEPLOYMENT['task_prefix']
+PORTAL_WORKERS = DEPLOYMENT['workers']
 key_file = STATE_DIR / "django-secret.key"
 if not key_file.exists():
     try:
@@ -17,11 +22,15 @@ DEBUG = False
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get(
     "TRANSFERDATA_ALLOWED_HOSTS", "vm-dwh,localhost,127.0.0.1,[::1],192.168.221.178,etl-dev-portal.daichi.ru"
 ).split(",") if host.strip()]
+if DEPLOYMENT['host'] and 'TRANSFERDATA_ALLOWED_HOSTS' not in os.environ:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', DEPLOYMENT['host']]
 CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([
     "http://etl-dev-portal.daichi.ru", "https://etl-dev-portal.daichi.ru",
     "http://etl-dev-portal.daichi.ru:8003", "https://etl-dev-portal.daichi.ru:8003",
     *[origin.strip() for origin in os.environ.get("TRANSFERDATA_CSRF_ORIGINS", "").split(",") if origin.strip()],
 ]))
+if DEPLOYMENT['profile'] == 'yds' and 'TRANSFERDATA_CSRF_ORIGINS' not in os.environ:
+    CSRF_TRUSTED_ORIGINS = ['http://192.168.70.9:8003']
 ROOT_URLCONF = "transferdata.web.urls"
 WSGI_APPLICATION = "transferdata.web.wsgi.application"
 INSTALLED_APPS = [
@@ -37,6 +46,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "transferdata.web.deployment.EnabledSections",
     "transferdata.web.portal_update.middleware.PauseWrites",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",

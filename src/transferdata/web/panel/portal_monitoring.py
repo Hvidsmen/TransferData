@@ -1,5 +1,6 @@
 """A compact cross-subsystem overview, grouped by shared group and worker."""
 from django.urls import reverse
+from django.conf import settings
 from django.utils import timezone
 from .operations import annotate_success, add_facts, worker_health
 from .monitoring import annotate_latest, transferdata_jobs, erp_jobs, STATUS_LABELS
@@ -36,14 +37,18 @@ def overview(request):
     health = worker_health()
     request._etl_health = health
     from transferdata.sql_agent.overview import cards
+    agent_cards, agent_notice = [], None
     try:
-        agent_cards, agent_notice = cards(request)
+        if 'agent' in settings.PORTAL_WORKERS:
+            agent_cards, agent_notice = cards(request)
     except Exception:
         agent_cards = []
         agent_notice = {'state':'error', 'message':'Не удалось подготовить сведения SQL Server Agent. Откройте раздел Agent для проверки подключения.'}
     health_by_key = {item['key']: item for item in health}
-    sources = [transferdata_jobs(request.user), erp_jobs(), python_jobs(request.user), agent_cards]
+    sources = [transferdata_jobs(request.user) if 'sql' in settings.PORTAL_WORKERS else [], erp_jobs(), python_jobs(request.user), agent_cards]
     for (key, label, icon), jobs in zip(WORKERS, sources):
+        if key not in settings.PORTAL_WORKERS:
+            continue
         total += len(jobs)
         for item in jobs:
             item['worker_name'] = label
@@ -69,4 +74,4 @@ def overview(request):
         group['workers'] = list(group['workers'].values())
     return {'portal_groups': result, 'job_total': total, 'job_shown': shown, 'query': query,
             'agent_notice': agent_notice, 'health': health, 'attention_jobs': attention, 'updated_at': timezone.now(),
-            'worker': worker, 'status': status, 'workers': WORKERS if request.user.is_superuser else WORKERS[:3], 'statuses': STATUS_LABELS.items()}
+            'worker': worker, 'status': status, 'workers': [w for w in WORKERS if w[0] in settings.PORTAL_WORKERS and (w[0] != 'agent' or request.user.is_superuser)], 'statuses': STATUS_LABELS.items()}

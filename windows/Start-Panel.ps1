@@ -1,13 +1,17 @@
 param(
     [ValidateSet("web", "worker", "erp-worker", "python-worker")][string]$Mode = "web",
     [string]$CredentialFile = ".state\postgres.credential.xml",
-    [string]$AllowedHosts = "vm-dwh,localhost,127.0.0.1,192.168.221.178,etl-dev-portal.daichi.ru"
+    [string]$AllowedHosts = ""
 )
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Portal-Profile.ps1')
 Set-Location $projectRoot
 $env:TRANSFERDATA_STATE_DIR = Join-Path $projectRoot ".state"
+if (-not $AllowedHosts) { $AllowedHosts = $portalAllowedHosts }
 $env:TRANSFERDATA_ALLOWED_HOSTS = $AllowedHosts
+if ($portalIsYds) { $env:TRANSFERDATA_CSRF_ORIGINS = 'http://192.168.70.9:8003' }
+if ($portalIsYds -and $Mode -eq 'worker') { throw 'SQL transfer worker is disabled in the YDS profile.' }
 $pythonArgs = @("-m", "transferdata.web")
 if (Test-Path "$projectRoot\.venv\Scripts\transferdata.exe") {
     $python = "$projectRoot\.venv\Scripts\python.exe"
