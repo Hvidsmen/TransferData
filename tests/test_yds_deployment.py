@@ -100,3 +100,19 @@ def test_yds_admin_and_update_page_do_not_show_old_company_setup(client, django_
     assert response.status_code == 200
     assert 'C:\\etl-dev-yds' in response.content.decode()
     assert 'C:\\Users\\ETLadmin' not in response.content.decode()
+
+
+def test_fresh_yds_migration_creates_both_procedure_jobs_once(tmp_path):
+    (tmp_path / 'deployment.json').write_text('{"version":1,"profile":"yds"}')
+    env = os.environ.copy()
+    env['TRANSFERDATA_STATE_DIR'] = str(tmp_path)
+    env['DJANGO_SETTINGS_MODULE'] = 'transferdata.web.settings'
+    for _ in range(2):
+        subprocess.run([sys.executable, '-m', 'transferdata.web', 'migrate', '--noinput'], env=env,
+                       capture_output=True, text=True, check=True)
+    code = "import django,json;django.setup();from transferdata.python_jobs.models import Job,Run;print(json.dumps([[(j.name,len(j.steps),j.enabled,j.transaction_mode) for j in Job.objects.order_by('pk')],Run.objects.count()]))"
+    result = subprocess.run([sys.executable, '-c', code], env=env, capture_output=True, text=True, check=True)
+    jobs, runs = json.loads(result.stdout)
+    assert len(jobs) == 2 and [j[1] for j in jobs] == [3, 7]
+    assert all(not j[2] and j[3] == 'atomic' for j in jobs)
+    assert runs == 0

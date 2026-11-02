@@ -261,3 +261,47 @@ def test_resume_cannot_bypass_changed_connection(pipeline):
     pipeline.connection.save()
     with pytest.raises(ValidationError, match='подключение'):
         enqueue(pipeline, resume_from=old, start_at='2')
+
+
+def test_yds_update_provisions_tasks_without_running_or_overwriting(pipeline, settings):
+    from django.core.management import call_command
+    settings.DEPLOYMENT = {'profile': 'yds'}
+    with patch('pyodbc.drivers', return_value=['ODBC Driver 17 for SQL Server']), patch('transferdata.python_jobs.pipeline.connect') as sql:
+        call_command('setup_sql_pipelines')
+        job = Job.objects.get(name='Обновление DataWH')
+        assert len(job.steps) == 7 and not job.enabled and job.transaction_mode == 'atomic'
+        assert job.connection.server == 'MSK-DB2' and job.connection.database == 'DataWH'
+        assert job.connection.authentication_type == 'WINDOWS'
+        assert not job.connection.trust_server_certificate
+        job.steps.reverse(); job.enabled = True; job.name = 'My renamed DataWH'; job.save()
+        call_command('setup_sql_pipelines')
+        job.refresh_from_db()
+        assert job.steps[0]['id'] == 'plan_fact' and job.enabled
+        assert Job.objects.count() == 3
+        assert not Run.objects.exists()
+        sql.assert_not_called()
+
+
+def test_setup_retains_deleted_tasks_and_only_adds_missing_one(pipeline, settings):
+    from django.core.management import call_command
+    settings.DEPLOYMENT = {'profile': 'yds'}
+    Job.objects.create(name='Бухгалтерия и ОС', handler='sql_pipeline', connection=pipeline.connection, steps=pipeline.steps, is_deleted=True)
+    with patch('pyodbc.drivers', return_value=[]):
+        call_command('setup_sql_pipelines')
+    assert Job.objects.get(name='Бухгалтерия и ОС').is_deleted
+    assert len(Job.objects.get(name='Обновление DataWH').steps) == 7
+    assert not Run.objects.exists()
+
+
+def test_post_migrate_provisions_only_current_yds_database(settings):
+    from transferdata.python_jobs.provisioning import provision_yds
+    settings.DEPLOYMENT = {'profile': 'yds'}
+    with patch('transferdata.python_jobs.provisioning.call_command') as command:
+        provision_yds(None)
+        command.assert_called_once_with('setup_sql_pipelines')
+        command.reset_mock()
+        provision_yds(None, using='other')
+        provision_yds(None, plan=[(None, True)])
+        settings.DEPLOYMENT = {'profile': 'default'}
+        provision_yds(None)
+        command.assert_not_called()

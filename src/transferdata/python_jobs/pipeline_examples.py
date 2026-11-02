@@ -11,11 +11,12 @@ def example_steps(database, specifications):
             for key, title, schema, procedure, dependencies in specifications]
 
 
-@transaction.atomic
-def create_examples(connection):
-    if is_paused() or not connection.is_active:
-        raise ValidationError('Установка недоступна во время обновления или с отключённым подключением.')
-    groups = [
+def provision_key(database):
+    return 'sql_examples.accounting' if database == '1С' else 'sql_examples.datawh'
+
+
+def definitions():
+    return [
         ('Бухгалтерия и ОС', '1С', [
             ('ledger', 'Хозрасчётный регистр', 'dbo', 'sp_РегистрБухгалтерии.Хозрасчетный', []),
             ('assets', 'Амортизация ОС', 'report', 'sp_ВедомостьАрмотизацииОС', ['ledger']),
@@ -28,11 +29,18 @@ def create_examples(connection):
             ('zup', 'Обновление ЗУП', 'zup', 'UpdateTables', []),
             ('fact', 'БДР: факт', 'bdr', 'sp_Fact', []),
             ('plan_fact', 'БДР: план-факт', 'bdr', 'SP_PlanFactReport', ['fact'])])]
+
+
+@transaction.atomic
+def create_examples(connection):
+    if is_paused() or not connection.is_active:
+        raise ValidationError('Установка недоступна во время обновления или с отключённым подключением.')
+    groups = definitions()
     if Job.objects.filter(name__in=[g[0] for g in groups]).exists():
         raise ValidationError('Задания с такими названиями уже существуют. Дубликаты не созданы.')
     created = []
     for name, database, specifications in groups:
-        job = Job(name=name, handler='sql_pipeline', connection=connection, transaction_mode='atomic',
+        job = Job(name=name, provision_key=provision_key(database), handler='sql_pipeline', connection=connection, transaction_mode='atomic',
                   steps=example_steps(database, specifications), timeout=21600, enabled=False)
         job.full_clean(); job.save(); created.append(job)
     return created

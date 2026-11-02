@@ -21,6 +21,7 @@ def script_path(value):
 class Job(models.Model):
     name = models.CharField('Название задания', max_length=150, unique=True)
     group = models.ForeignKey('panel.JobGroup', verbose_name='Группа заданий', null=True, blank=True, on_delete=models.SET_NULL, related_name='python_jobs')
+    provision_key = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
     handler = models.CharField('Обработчик', max_length=40, choices=HANDLERS, default='commercial_headers')
     connection = models.ForeignKey('control.DatabaseConnection', verbose_name='Подключение SQL Server', null=True, blank=True, on_delete=models.PROTECT)
     script = models.CharField('Python-файл', max_length=250, blank=True, help_text='Путь относительно .state/python-scripts. Только для обработчика «Python-файл на сервере».')
