@@ -13,14 +13,14 @@ DataWH обработчик коммерческих предложений не
 
 ## Установка на Windows-сервере 192.168.70.9
 
-Подготовьте Windows x64, Git, Python 3.12+ x64 с launcher `py` и ODBC Driver
+Подготовьте Windows x64, Git, Python 3.12+ x64 с доступной командой `py` или `python` и ODBC Driver
 17/18 for SQL Server. Выберите Windows-учётную запись будущих служб: ей нужны
 права на каталог, пакетный вход и необходимые базы. Установку выполняйте от неё,
 запустив PowerShell с повышенными правами. Имена баз и учётные данные первой
 компании нигде не подставляются.
 
 ```powershell
-py -m pip install --user uv
+python -m pip install --user uv
 
 git clone --branch main --single-branch https://github.com/Hvidsmen/TransferData.git C:\etl-dev-yds
 cd C:\etl-dev-yds

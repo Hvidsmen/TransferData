@@ -145,7 +145,8 @@ try {
     if (@($local | Where-Object { $incoming -contains $_ }).Count) {
         throw "Local files overlap the incoming update. Preserve/resolve them before updating."
     }
-    $python = "py"
+    $bootstrapPython = Get-PortalPython
+    $python = $bootstrapPython
     $useVenv = Test-Path "$projectRoot\.venv\Scripts\transferdata.exe"
     if ($useVenv) { $python = "$projectRoot\.venv\Scripts\python.exe" }
     # These checks deliberately do not print process environment or credential files.
@@ -217,8 +218,8 @@ try {
     Write-UpdateStatus "install" 5
     $mutationStarted = $true
     Invoke-Checked "git" @("merge", "--ff-only", "refs/remotes/origin/main")
-    if ($useVenv) { Invoke-Checked "py" @("-m", "uv", "sync", "--locked") }
-    else { Invoke-Checked "py" @("-m", "pip", "install", "--user", "--no-build-isolation", ".") }
+    if ($useVenv) { Invoke-Checked $bootstrapPython @("-m", "uv", "sync", "--locked") }
+    else { Invoke-Checked $bootstrapPython @("-m", "pip", "install", "--user", "--no-build-isolation", ".") }
     Write-UpdateStatus "migrate" 6
     Invoke-Checked $python @("-m", "transferdata.web", "migrate", "--noinput")
     Write-UpdateStatus "static" 7

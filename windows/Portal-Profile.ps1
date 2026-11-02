@@ -16,3 +16,11 @@ if (Test-Path -LiteralPath $deploymentPath) {
     $portalPrimaryTasks = @('Web','ERP','Python')
     $portalAllowedHosts = 'localhost,127.0.0.1,192.168.70.9'
 }
+
+function Get-PortalPython {
+    foreach ($commandName in @('py', 'python')) {
+        $command = Get-Command $commandName -CommandType Application -ErrorAction SilentlyContinue
+        if ($command) { return $command.Source }
+    }
+    throw 'Python 3.12+ is required. Install Python or add python.exe to PATH, then reopen PowerShell.'
+}

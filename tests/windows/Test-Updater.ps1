@@ -65,6 +65,16 @@ if($portalTaskPrefix -ne 'ETL Dev' -or $portalIsYds -or $portalRequiredModes -no
 . (Join-Path $repo 'windows/Portal-Profile.ps1')
 if($portalTaskPrefix -ne 'etl-dev-yds' -or -not $portalIsYds -or $portalRequiredModes -contains 'worker' -or $portalRequiredModes -notcontains 'python-worker'){throw 'YDS task requirements are wrong'}
 if(($portalPrimaryTasks -join ',') -ne 'Web,ERP,Python' -or $portalAllowedHosts -match 'daichi|vm-dwh'){throw 'YDS inherited another company configuration'}
+$script:hasPythonLauncher=$false
+function Get-Command {param($Name,$CommandType,$ErrorAction)
+    if($Name -eq 'python'){return [pscustomobject]@{Source='C:\Python313\python.exe'}}
+    if($Name -eq 'py' -and $script:hasPythonLauncher){return [pscustomobject]@{Source='C:\Windows\py.exe'}}
+    return $null
+}
+if((Get-PortalPython) -ne 'C:\Python313\python.exe'){throw 'Python without py launcher is not supported'}
+$script:hasPythonLauncher=$true
+if((Get-PortalPython) -ne 'C:\Windows\py.exe'){throw 'Existing py launcher preference changed'}
+Remove-Item Function:Get-Command
 Remove-Item -LiteralPath $projectRoot -Recurse -Force
 $projectRoot=$savedProjectRoot
 Remove-Item -LiteralPath $StatusFile -ErrorAction SilentlyContinue

@@ -16,7 +16,7 @@ $pythonArgs = @("-m", "transferdata.web")
 if (Test-Path "$projectRoot\.venv\Scripts\transferdata.exe") {
     $python = "$projectRoot\.venv\Scripts\python.exe"
 } else {
-    $python = "py"
+    $python = Get-PortalPython
 }
 if ($Mode -eq "web") {
     & $python @pythonArgs runpanel --host 0.0.0.0 --port 8003

@@ -42,7 +42,8 @@ Set-Acl -LiteralPath $state -AclObject $acl
 $env:TRANSFERDATA_STATE_DIR = $state
 $env:TRANSFERDATA_ALLOWED_HOSTS = $portalAllowedHosts
 $env:TRANSFERDATA_CSRF_ORIGINS = 'http://192.168.70.9:8003'
-Invoke-YdsChecked 'py' @('-m','uv','sync','--locked')
+$bootstrapPython = Get-PortalPython
+Invoke-YdsChecked $bootstrapPython @('-m','uv','sync','--locked')
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 Invoke-YdsChecked $python @('-m','transferdata.web','migrate','--noinput')
 Invoke-YdsChecked $python @('-m','transferdata.web','collectstatic','--noinput')
