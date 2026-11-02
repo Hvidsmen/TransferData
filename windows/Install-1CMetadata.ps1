@@ -50,8 +50,12 @@ try {
         Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $installRoot "dotnet") -Force
         Remove-Item -LiteralPath $archive
     }
-    & $dotnet restore $project --locked-mode
-    if ($LASTEXITCODE -ne 0) { throw "NuGet restore failed. Check corporate proxy access to api.nuget.org." }
+    # Use an isolated public feed configuration: user/machine NuGet sources can
+    # otherwise disable or remap the packages and produce NU1100.
+    $nugetConfig = Join-Path $projectRoot "tools\OneCMetadata\NuGet.Config"
+    if (-not (Test-Path -LiteralPath $nugetConfig)) { throw "NuGet.Config is missing. Update the checkout before installing the helper." }
+    & $dotnet restore $project --locked-mode --configfile $nugetConfig
+    if ($LASTEXITCODE -ne 0) { throw "NuGet restore failed using the project nuget.org source. Review the NuGet error above; verify HTTPS access to api.nuget.org and package download hosts through the corporate proxy." }
     $output = Join-Path $installRoot ("bin-" + [guid]::NewGuid().ToString("N"))
     & $dotnet publish $project -c Release --no-restore --output $output
     if ($LASTEXITCODE -ne 0) { throw "Metadata helper build failed." }

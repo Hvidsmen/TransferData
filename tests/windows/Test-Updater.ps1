@@ -2,7 +2,7 @@
 $ErrorActionPreference='Stop'
 $tokens=$null;$errors=$null
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-foreach ($name in @('Update-Portal.ps1','Install-PortalUpdater.ps1','Invoke-PortalUpdate.ps1','Start-Panel.ps1','Install-PythonWorker.ps1','Portal-Profile.ps1','Install-YDS.ps1')) {
+foreach ($name in @('Update-Portal.ps1','Install-PortalUpdater.ps1','Invoke-PortalUpdate.ps1','Start-Panel.ps1','Install-PythonWorker.ps1','Portal-Profile.ps1','Install-YDS.ps1','Install-1CMetadata.ps1')) {
  [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $repo ('windows/' + $name)),[ref]$tokens,[ref]$errors)|Out-Null
  if($errors.Count){throw ($errors|Out-String)}
 }
