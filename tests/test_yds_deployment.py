@@ -71,7 +71,7 @@ def test_yds_python_form_has_no_company_specific_handler(yds):
     from transferdata.python_jobs.models import Job
     form = JobForm()
     assert form.initial['handler'] == 'script'
-    assert list(form.fields['handler'].choices) == [('script', 'Python-файл на сервере')]
+    assert list(form.fields['handler'].choices) == [('script', 'Python-файл на сервере'), ('sql_pipeline', 'Цепочка SQL-процедур')]
     with pytest.raises(ValidationError, match='собственный Python-файл'):
         Job(name='not portable', handler='commercial_headers').clean()
 

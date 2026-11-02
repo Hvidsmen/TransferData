@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 
-HANDLERS = [('commercial_headers', 'Заголовки коммерческих предложений'), ('script', 'Python-файл на сервере')]
+HANDLERS = [('commercial_headers', 'Заголовки коммерческих предложений'), ('script', 'Python-файл на сервере'), ('sql_pipeline', 'Цепочка SQL-процедур')]
 
 
 def script_path(value):
@@ -24,6 +24,8 @@ class Job(models.Model):
     handler = models.CharField('Обработчик', max_length=40, choices=HANDLERS, default='commercial_headers')
     connection = models.ForeignKey('control.DatabaseConnection', verbose_name='Подключение SQL Server', null=True, blank=True, on_delete=models.PROTECT)
     script = models.CharField('Python-файл', max_length=250, blank=True, help_text='Путь относительно .state/python-scripts. Только для обработчика «Python-файл на сервере».')
+    steps = models.JSONField('Шаги', default=list, blank=True)
+    transaction_mode = models.CharField('Фиксация результатов', max_length=12, choices=[('atomic', 'Одна транзакция на всю цепочку'), ('per_step', 'Фиксировать каждый шаг отдельно')], default='atomic')
     parameters = models.JSONField('Параметры', default=dict, blank=True, help_text='JSON-объект. Для заголовков: {"date_from": "2023-01-01"}. Для файла передаётся через ETL_JOB_PARAMETERS.')
     timeout = models.PositiveIntegerField('Максимальное время выполнения, секунд', default=3600, validators=[MinValueValidator(1), MaxValueValidator(86400)])
     cron = models.CharField('Расписание', max_length=100, default='0 2 * * *')
@@ -53,6 +55,14 @@ class Job(models.Model):
                 raise ValidationError({'connection': 'Выберите активное подключение к DataWH с правами чтения и записи заголовков.'})
             if self.connection.database.casefold() != 'datawh':
                 raise ValidationError({'connection': 'Этот обработчик рассчитан на базу DataWH.'})
+        elif self.handler == 'sql_pipeline':
+            from .steps import validate_steps
+            try:
+                validate_steps(self.steps)
+            except ValidationError as exc:
+                raise ValidationError({'steps': exc.messages}) from None
+            if not self.connection_id or not self.connection.is_active:
+                raise ValidationError({'connection': 'Выберите активное подключение SQL Server для запуска процедур.'})
         elif self.handler == 'script':
             script_path(self.script)
         else:
@@ -72,13 +82,15 @@ class Job(models.Model):
         if self.connection_id:
             connection = {f.attname: getattr(self.connection, f.attname) for f in self.connection._meta.concrete_fields if f.name not in ('created_at', 'updated_at')}
         return {'handler': self.handler, 'script': self.script, 'parameters': self.parameters,
-                'timeout': self.timeout, 'connection': connection}
+                'timeout': self.timeout, 'connection': connection, 'steps': self.steps, 'transaction_mode': self.transaction_mode}
 
 
 class Run(models.Model):
-    STATUS = [('queued', 'В очереди'), ('running', 'Выполняется'), ('success', 'Успешно'), ('failed', 'Ошибка'), ('interrupted', 'Прерван: проверьте результат')]
+    STATUS = [('queued', 'В очереди'), ('running', 'Выполняется'), ('success', 'Успешно'), ('failed', 'Ошибка'), ('interrupted', 'Прерван: проверьте результат'), ('stopped', 'Остановлен')]
     job = models.ForeignKey(Job, on_delete=models.PROTECT)
     snapshot = models.JSONField(editable=False)
+    stop_requested = models.BooleanField(default=False, editable=False)
+    resume_of = models.ForeignKey('self', null=True, blank=True, on_delete=models.PROTECT, editable=False)
     status = models.CharField(max_length=20, choices=STATUS, default='queued')
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True)
@@ -97,3 +109,22 @@ class Run(models.Model):
     @property
     def percent(self):
         return min(100, int(100 * self.completed / self.total)) if self.total else (100 if self.status == 'success' else 0)
+
+
+class StepRun(models.Model):
+    STATUS = [('pending', 'Ожидает'), ('running', 'Выполняется'), ('done', 'Выполнен, ожидает фиксации группы'),
+              ('success', 'Зафиксирован'), ('preserved', 'Сохранён из предыдущего запуска'), ('skipped', 'Пропущен'),
+              ('failed', 'Ошибка'), ('rolled_back', 'Группа отменена; проверьте внутренние COMMIT'), ('unknown', 'Результат требует проверки')]
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name='step_runs')
+    key = models.CharField(max_length=64)
+    position = models.PositiveIntegerField()
+    name = models.CharField(max_length=150)
+    status = models.CharField(max_length=20, choices=STATUS, default='pending')
+    started_at = models.DateTimeField(null=True)
+    finished_at = models.DateTimeField(null=True)
+    seconds = models.FloatField(null=True)
+    message = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['position']
+        constraints = [models.UniqueConstraint(fields=['run', 'key'], name='python_unique_run_step')]

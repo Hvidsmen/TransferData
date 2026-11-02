@@ -6,7 +6,7 @@ from .models import Job, Run
 from .operations import annotate_success, add_facts
 
 STATUS_LABELS = {'queued': 'В очереди', 'running': 'Выполняется', 'success': 'Успешно',
-                 'failed': 'Ошибка', 'interrupted': 'Прерван', 'cancelled': 'Отменён',
+                 'failed': 'Ошибка', 'interrupted': 'Прерван', 'cancelled': 'Отменён', 'stopped': 'Остановлен',
                  'never': 'Не запускалось', 'restricted': 'Нет доступа к истории'}
 
 

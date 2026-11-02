@@ -100,6 +100,8 @@ def edit(request, pk=None):
 @require_POST
 def run_job(request, pk):
     job = get_object_or_404(Job, pk=pk, is_deleted=False)
+    if job.handler == 'sql_pipeline':
+        return redirect('python_jobs:pipeline_start', pk=pk)
     try:
         run, created = enqueue(job)
         messages.info(request, 'Задание поставлено в очередь.' if created else 'У задания уже есть активный запуск.')
@@ -128,7 +130,86 @@ def history(request):
 def detail(request, pk):
     run = get_object_or_404(Run.objects.select_related('job'), pk=pk)
     active = Run.objects.filter(job=run.job, status__in=['queued', 'running']).first()
+    step_records = list(run.step_runs.all())
+    definitions = {step['id']: step for step in run.snapshot.get('steps', [])}
+    for step in step_records:
+        definition = definitions.get(step.key, {})
+        step.procedure_label = '.'.join([definition.get('database') or (run.snapshot.get('connection') or {}).get('database', ''), definition.get('schema', 'dbo'), definition.get('procedure', '')])
     return screen(request, 'run.html', title=run.job.name, section='history', run=run,
                   retry_allowed=request.user.has_perm('python_jobs.change_job') and not run.job.archived and not run.job.is_deleted,
                   retry_url=reverse('python_jobs:execute', args=[run.job_id]),
-                  active_run_url=reverse('python_jobs:run', args=[active.pk]) if active else '')
+                  active_run_url=reverse('python_jobs:run', args=[active.pk]) if active else '',
+                  pipeline=run.snapshot.get('handler') == 'sql_pipeline',
+                  step_runs=step_records,
+                  can_resume=run.snapshot.get('handler') == 'sql_pipeline' and run.snapshot.get('transaction_mode') == 'per_step' and run.status not in ('queued', 'running') and not active)
+
+
+@staff_member_required(login_url='admin:login')
+@permission_required('python_jobs.change_job', raise_exception=True)
+def pipeline_start(request, pk):
+    from django.http import Http404
+    job = get_object_or_404(Job, pk=pk, is_deleted=False)
+    if job.handler != 'sql_pipeline':
+        raise Http404
+    if request.method == 'POST':
+        try:
+            if request.POST.get('confirmed') != 'yes':
+                raise ValidationError('Подтвердите запуск выбранных процедур.')
+            run, created = enqueue(job, skip=request.POST.getlist('skip'))
+            if not created:
+                messages.info(request, 'У задания уже есть активный запуск. Его шаги не изменены.')
+            return redirect('python_jobs:run', pk=run.pk)
+        except ValidationError as exc:
+            messages.error(request, '; '.join(exc.messages))
+    return screen(request, 'pipeline_start.html', title='Запуск цепочки', section='jobs', job=job)
+
+
+@staff_member_required(login_url='admin:login')
+@permission_required(('python_jobs.change_job', 'python_jobs.view_run'), raise_exception=True)
+@require_POST
+def stop(request, pk):
+    from .pipeline import request_stop
+    run = get_object_or_404(Run, pk=pk)
+    try:
+        request_stop(run)
+        messages.info(request, 'Остановка запрошена. Текущая SQL-процедура не прерывается принудительно.')
+    except ValidationError as exc:
+        messages.error(request, '; '.join(exc.messages))
+    return redirect('python_jobs:run', pk=pk)
+
+
+@staff_member_required(login_url='admin:login')
+@permission_required(('python_jobs.change_job', 'python_jobs.view_run'), raise_exception=True)
+def resume(request, pk):
+    run = get_object_or_404(Run.objects.select_related('job'), pk=pk)
+    if request.method == 'POST':
+        try:
+            if request.POST.get('confirmed') != 'yes':
+                raise ValidationError('Подтвердите проверку результатов и допустимость повтора процедур.')
+            new, _ = enqueue(run.job, resume_from=run, start_at=request.POST.get('start_at'))
+            return redirect('python_jobs:run', pk=new.pk)
+        except ValidationError as exc:
+            messages.error(request, '; '.join(exc.messages))
+    return screen(request, 'pipeline_resume.html', title='Продолжить с выбранного шага', section='history', run=run,
+        resumable=run.snapshot.get('handler') == 'sql_pipeline' and run.snapshot.get('transaction_mode') == 'per_step' and run.status not in ('queued', 'running'))
+
+
+@staff_member_required(login_url='admin:login')
+@permission_required('python_jobs.add_job', raise_exception=True)
+def pipeline_examples(request):
+    from django import forms
+    from transferdata.erp.control.models import DatabaseConnection
+    from .pipeline_examples import create_examples
+    class ExampleForm(forms.Form):
+        connection = forms.ModelChoiceField(label='Подключение к SQL Server, с которого вызываются процедуры (MSK-DB2)',
+            queryset=DatabaseConnection.objects.filter(is_active=True).order_by('name'))
+        confirmed = forms.BooleanField(label='Создать два задания без запуска и без расписания')
+    form = ExampleForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            create_examples(form.cleaned_data['connection'])
+            messages.success(request, 'Созданы «Бухгалтерия и ОС» и «Обновление DataWH». Расписания выключены, процедуры не запускались.')
+            return redirect('python_jobs:jobs')
+        except ValidationError as exc:
+            form.add_error(None, exc)
+    return screen(request, 'pipeline_examples.html', title='Создать цепочки из вашего скрипта', section='jobs', form=form)

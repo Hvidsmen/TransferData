@@ -18,6 +18,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             with instance_lock(settings.STATE_DIR / 'python-worker'):
+                from transferdata.python_jobs.pipeline import recover_steps
+                recover_steps()
                 Run.objects.filter(status='running').update(status='interrupted', finished_at=timezone.now(), message='Обработчик остановлен до записи результата. Проверьте данные перед повторным запуском.')
                 self.stdout.write('Python worker started')
                 try:

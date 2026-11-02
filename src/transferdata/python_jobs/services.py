@@ -22,16 +22,21 @@ PREFIX = 'ETL_PROGRESS:'
 
 
 @transaction.atomic
-def enqueue(job, action='run'):
+def enqueue(job, action='run', *, skip=(), resume_from=None, start_at=None):
     if is_paused():
         raise ValidationError('Портал обновляется. Повторите после завершения обновления.')
     job = Job.objects.select_for_update().select_related('connection').get(pk=job.pk)
     job.full_clean()
     if job.archived or job.is_deleted:
         raise ValidationError('Задание в архиве или удалено.')
+    from .pipeline import prepare_snapshot, initialize
+    config, inherited = prepare_snapshot(job, skip=skip, resume_from=resume_from, start_at=start_at)
     try:
         with transaction.atomic():
-            return Run.objects.create(job=job, snapshot=job.snapshot()), True
+            created = Run.objects.create(job=job, snapshot=config, resume_of=resume_from)
+            if config['handler'] == 'sql_pipeline':
+                initialize(created, inherited)
+            return created, True
     except IntegrityError:
         active = Run.objects.filter(job=job, status__in=['queued', 'running']).first()
         if active is None:
@@ -88,7 +93,8 @@ def execute_next():
     child_error = None
     try:
         config = run.snapshot
-        builtin = config['handler'] == 'commercial_headers'
+        pipeline = config['handler'] == 'sql_pipeline'
+        builtin = config['handler'] in ('commercial_headers', 'sql_pipeline')
         command = [sys.executable, '-u', '-m', 'transferdata.web', 'pythonjobexecute', '--run', str(run.pk)] if builtin else [sys.executable, '-u', str(script_path(config['script']))]
         env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUNBUFFERED='1',
                    TRANSFERDATA_STATE_DIR=str(settings.STATE_DIR), ETL_JOB_PARAMETERS=json.dumps(config['parameters'], ensure_ascii=False))
@@ -143,15 +149,22 @@ def execute_next():
                 run.output = '\n'.join(output)[-65536:]
                 run.save(update_fields=['completed', 'total', 'rows', 'message', 'output'])
                 saved = time.monotonic()
-        if process.returncode != 0 or (builtin and child_result is None):
+        if pipeline:
+            run.refresh_from_db()
+            if run.status not in ('success', 'failed', 'stopped', 'interrupted'):
+                raise ChildProcessError
+        elif process.returncode != 0 or (builtin and child_result is None):
             raise ChildProcessError
+        if pipeline:
+            output.append(run.message)
+            return True
         run.status = 'success'
         run.message = ('Новых или неполных документов не найдено' if run.total == 0 else 'Обработка завершена') if builtin else 'Python-файл завершён, код возврата 0'
         output.append(run.message)
         if builtin:
             run.rows = child_result
     except Exception as exc:
-        run.status = 'failed'
+        run.status = 'interrupted' if run.snapshot.get('handler') == 'sql_pipeline' else 'failed'
         if isinstance(exc, ValidationError):
             output.append('; '.join(exc.messages))
         run.message = child_error if isinstance(exc, ChildProcessError) and child_error else ('Превышено максимальное время. Обработчик остановлен; проверьте уже выполненные операции.' if isinstance(exc, TimeoutError)
@@ -161,6 +174,9 @@ def execute_next():
             stop_tree(process, process_job)
         if process_job is not None:
             process_job.close()
+        if run.snapshot.get('handler') == 'sql_pipeline' and run.status == 'interrupted':
+            from .models import StepRun
+            StepRun.objects.filter(run=run, status__in=['running', 'done']).update(status='unknown', message='Дочерний процесс прерван; проверьте SQL-результат.')
         # Unblock the bounded reader after an error/timeout before joining it.
         if reader:
             while reader.is_alive():

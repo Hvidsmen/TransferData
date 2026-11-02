@@ -14,11 +14,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         run = Run.objects.get(pk=options['run'], status='running')
-        if run.snapshot['handler'] != 'commercial_headers':
+        if run.snapshot['handler'] not in ('commercial_headers', 'sql_pipeline'):
             raise CommandError('Неизвестный встроенный обработчик')
         def progress(**values):
             self.stdout.write(PREFIX + json.dumps(values, ensure_ascii=False))
             self.stdout.flush()
+        if run.snapshot['handler'] == 'sql_pipeline':
+            from transferdata.python_jobs.pipeline import execute_pipeline
+            execute_pipeline(run, progress)
+            return
         try:
             rows = commercial_headers(run.snapshot, progress)
         except Exception as exc:

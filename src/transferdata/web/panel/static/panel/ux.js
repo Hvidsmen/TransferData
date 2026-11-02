@@ -39,7 +39,7 @@
     if (!form) return;
     const rows = [...form.querySelectorAll('.editor-field')];
     const fields = [['name', 'group', 'job_type', 'handler', 'source_type', 'connection', 'source_connection'],
-      ['source_schema', 'source_table', 'one_c_object', 'sql_query', 'procedure_schema', 'procedure_name', 'procedure_parameters', 'script', 'parameters', 'columns'],
+      ['source_schema', 'source_table', 'one_c_object', 'sql_query', 'procedure_schema', 'procedure_name', 'procedure_parameters', 'script', 'parameters', 'columns', 'steps', 'transaction_mode'],
       ['target_connection', 'target_schema', 'target_table'],
       ['enabled', 'cron', 'timezone', 'schedule_enabled', 'schedule_cron', 'is_active']];
     const titles = ['Источник', 'Данные', 'Назначение', 'Расписание', 'Проверка'];
