@@ -330,3 +330,27 @@ def test_connection_validation_failure_has_phase_and_no_private_values(pipeline)
     assert 'Подключение к SQL Server' in run.message and 'ODBC-драйвер' in run.message
     assert 'ещё не запускались' in run.message and 'private' not in run.message
     assert all(s.status == 'pending' for s in run.step_runs.all())
+
+
+def test_sql_native_error_is_explained_without_leaking_driver_values(pipeline):
+    class MissingObject(FakeDB):
+        def cursor(self):
+            cursor = super().cursor()
+            original = cursor.execute
+            def execute(sql, *values):
+                original(sql, *values)
+                if len(self.calls) == 3:
+                    raise pyodbc.ProgrammingError('42000', "[SQL Server]Invalid object 'private_customer_table' secret=hidden (208) (SQLExecDirectW)")
+            cursor.execute = execute
+            return cursor
+    run = execute(pipeline, MissingObject())
+    assert run.status == 'failed' and run.completed == 2 and run.percent == 66
+    assert 'SQL Server 208' in run.message and 'Не найдена таблица' in run.message
+    assert 'Step 3' in run.message and 'private' not in run.message and 'hidden' not in run.message
+    assert 'SQL Server 208' in run.step_runs.get(key='3').message
+
+
+def test_unknown_sql_text_is_not_exposed():
+    from transferdata.python_jobs.sql_diagnostics import native_errors
+    assert native_errors(pyodbc.Error('42000', "secret customer row (987654) (SQLExecDirectW)")) == ''
+    assert 'параметр' in native_errors(pyodbc.Error('42000', 'private argument (201) (SQLExecDirectW)'))

@@ -10,6 +10,7 @@ from transferdata.erp.engine.connections import connect
 from .models import Run, StepRun
 from .steps import validate_steps, procedure_sql
 from .handlers import connection_from_snapshot
+from .sql_diagnostics import native_errors
 
 
 class ProcedureStepError(Exception):
@@ -88,7 +89,7 @@ def execute_pipeline(run, progress):
     committing = False
     phase = 'configuration'
     def report(message):
-        completed = run.step_runs.exclude(status__in=['pending', 'running']).count()
+        completed = run.step_runs.filter(status__in=['success', 'done', 'preserved', 'skipped', 'rolled_back']).count()
         Run.objects.filter(pk=run.pk).update(completed=completed, message=message)
         progress(completed=completed, total=len(config['steps']), message=message)
     def stop_requested():
@@ -175,6 +176,9 @@ def execute_pipeline(run, progress):
                     current.finished_at = timezone.now()
                     current.seconds = (current.finished_at-current.started_at).total_seconds() if current.started_at else None
                     current.message = 'Результат фиксации требует проверки.' if current.status == 'unknown' else (f'Процедура вернула код {exc.return_code}; следующие не запускались.' if isinstance(exc, ProcedureStepError) else 'Шаг завершился ошибкой; следующие не запускались.')
+                    detail = native_errors(exc)
+                    if detail:
+                        current.message += ' ' + detail
                     current.save()
                 run.step_runs.filter(status='done').update(status='unknown' if committing or not rolled else 'rolled_back')
                 raise
@@ -184,7 +188,10 @@ def execute_pipeline(run, progress):
         state = state if re.fullmatch(r'[A-Z0-9]{5}', state) else ''
         phase_label = {'configuration': 'Проверка настроек цепочки', 'connection': 'Подключение к SQL Server',
                        'dependencies': 'Проверка зависимостей', 'procedure': 'Выполнение процедуры', 'commit': 'Фиксация результатов'}.get(phase, 'Цепочка')
-        hint = ''
+        detail = native_errors(exc)
+        hint = (' ' + detail) if detail else ''
+        if current and phase not in ('configuration', 'connection'):
+            hint += f' Шаг: {current.name}.'
         if isinstance(exc, ValidationError):
             if phase == 'connection':
                 labels = {'name': 'название профиля', 'id': 'идентификатор профиля', 'server': 'сервер', 'port': 'порт',
