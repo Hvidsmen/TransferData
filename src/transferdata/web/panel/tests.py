@@ -5,6 +5,7 @@ import tempfile
 from unittest.mock import patch, MagicMock
 
 from django.contrib.auth import get_user_model
+from django.conf import settings as django_settings
 from django.core.exceptions import ValidationError
 from django.core.management import call_command, CommandError
 from django.test import Client, TestCase
@@ -20,11 +21,11 @@ class PanelTests(TestCase):
         host = 'etl-dev-portal.daichi.ru'
         client = Client(enforce_csrf_checks=True)
         self.assertEqual(client.get('/login/', HTTP_HOST=host).status_code, 200)
-        token = client.cookies['csrftoken'].value
+        token = client.cookies[django_settings.CSRF_COOKIE_NAME].value
         response = client.post('/login/', {'username': 'operator', 'password': 'test-password-only',
             'csrfmiddlewaretoken': token}, HTTP_HOST=host, HTTP_ORIGIN='https://' + host)
         self.assertEqual(response.status_code, 302)
-        response = client.post('/login/', {'csrfmiddlewaretoken': client.cookies['csrftoken'].value},
+        response = client.post('/login/', {'csrfmiddlewaretoken': client.cookies[django_settings.CSRF_COOKIE_NAME].value},
             HTTP_HOST=host, HTTP_ORIGIN='https://untrusted.example')
         self.assertEqual(response.status_code, 403)
 

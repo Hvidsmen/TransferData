@@ -17,7 +17,7 @@
   }
   const outcome=document.getElementById('update-outcome');
   if (data.state==='success') {
-   outcome.textContent='Портал обновлён. Ранее работавшие службы запущены.'; outcome.className='notice success'; const reload=document.createElement('a'); reload.className='btn secondary small'; reload.href=window.location.href; reload.textContent='Открыть обновлённую страницу'; outcome.append(document.createElement('br'),reload); return true;
+   outcome.textContent='Портал обновлён. Включённые службы запущены.'; outcome.className='notice success'; const reload=document.createElement('a'); reload.className='btn secondary small'; reload.href=window.location.href; reload.textContent='Открыть обновлённую страницу'; outcome.append(document.createElement('br'),reload); return true;
   }
   if (data.state==='failed') {
    outcome.textContent=data.recovery_required ? 'Обновление прервано после изменений. Режим обслуживания сохранён; требуется восстановление на сервере. Подробный журнал и резервная копия находятся на сервере.' : 'Обновление не завершено. Проверьте этап выше и журнал задачи на сервере. Если изменения ещё не начинались, прежнее состояние служб восстанавливается скриптом.';
@@ -31,7 +31,16 @@
   const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),15000);
   try {
    const response=await fetch(panel.dataset.statusUrl,{credentials:'same-origin',cache:'no-store',signal:controller.signal});
-   if(response.redirected || response.status===401 || response.status===403){connection.textContent='Сессия завершена. После запуска портала войдите снова и откройте эту страницу.';return;}
+   const destination=new URL(response.url || panel.dataset.statusUrl,window.location.href);
+   if(destination.origin!==window.location.origin) throw Error();
+   const login=response.redirected && destination.pathname==='/login/';
+   if(login || response.status===401){
+    connection.textContent='Нужно войти в портал для просмотра состояния. Само обновление продолжает независимая задача Windows.';
+    const link=document.createElement('a'); link.href='/login/?next='+encodeURIComponent(window.location.pathname+window.location.search);
+    link.textContent=' Войти и вернуться к обновлению'; connection.append(link); return;
+   }
+   if(response.status===403){connection.textContent='Нет прав администратора для просмотра обновления.';return;}
+   if(response.redirected) throw Error();
    if(!response.ok) throw Error();
    finished=show(await response.json()); connection.textContent='Состояние получено с сервера.';
   } catch (_) {

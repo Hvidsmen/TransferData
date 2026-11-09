@@ -21,10 +21,26 @@
         credentials: "same-origin", cache: "no-store", signal: controller.signal,
         headers: {"X-ETL-Live": "1"},
       });
-      if (response.redirected || response.status === 401 || response.status === 403) {
+      const update = response.headers.get('X-ETL-Update-URL');
+      const destination = new URL(update || response.url || window.location.href, window.location.href);
+      if (destination.origin !== window.location.origin) throw new Error('Unexpected navigation');
+      if (update || response.redirected && destination.pathname.startsWith('/administration/update/')) {
+        stopped = true; window.location.assign(destination.href); return;
+      }
+      const login = response.redirected && destination.pathname === '/login/';
+      if (login || response.status === 401) {
         stopped = true;
-        status("Сессия завершена или доступ изменён. Обновите страницу для входа.");
+        status('Нужно войти в портал.');
+        const link = document.createElement('a');
+        link.href = login ? destination.href : '/login/?next=' + encodeURIComponent(window.location.pathname + window.location.search);
+        link.textContent = ' Войти и вернуться на эту страницу'; indicator?.append(link);
         return;
+      }
+      if (response.status === 403) {
+        stopped = true; status('Нет прав для просмотра этой страницы.'); return;
+      }
+      if (response.redirected && destination.href !== window.location.href) {
+        stopped = true; window.location.assign(destination.href); return;
       }
       if (!response.ok) throw new Error("Request failed");
       const next = new DOMParser().parseFromString(await response.text(), "text/html");
@@ -58,6 +74,7 @@
       if (!stopped && !document.hidden) timer = setTimeout(refresh, 3000);
     }
   }
+  window.addEventListener("pagehide", () => { stopped = true; clearTimeout(timer); });
   document.addEventListener("visibilitychange", () => {
     clearTimeout(timer);
     if (!document.hidden) refresh();

@@ -28,12 +28,13 @@ def test_yds_settings_load_in_fresh_process_without_old_company_hosts(tmp_path):
     env['TRANSFERDATA_STATE_DIR'] = str(tmp_path)
     env.pop('TRANSFERDATA_ALLOWED_HOSTS', None)
     env.pop('TRANSFERDATA_CSRF_ORIGINS', None)
-    result = subprocess.run([sys.executable, '-c', "import json; from transferdata.web import settings as s; print(json.dumps([s.PORTAL_NAME,s.ALLOWED_HOSTS,s.CSRF_TRUSTED_ORIGINS,s.PORTAL_WORKERS]))"], env=env, capture_output=True, text=True, check=True)
-    name, hosts, origins, workers = json.loads(result.stdout)
+    result = subprocess.run([sys.executable, '-c', "import json; from transferdata.web import settings as s; print(json.dumps([s.PORTAL_NAME,s.ALLOWED_HOSTS,s.CSRF_TRUSTED_ORIGINS,s.PORTAL_WORKERS,s.SESSION_COOKIE_NAME,s.CSRF_COOKIE_NAME]))"], env=env, capture_output=True, text=True, check=True)
+    name, hosts, origins, workers, session_cookie, csrf_cookie = json.loads(result.stdout)
     assert name == 'etl-dev-yds'
     assert '192.168.70.9' in hosts
     assert not any('daichi' in h for h in hosts + origins)
     assert workers == ['onec', 'python']
+    assert session_cookie == 'etl_dev_yds_sessionid' and csrf_cookie == 'etl_dev_yds_csrftoken'
     assert (tmp_path / 'django-secret.key').exists()
 
 

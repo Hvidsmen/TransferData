@@ -101,3 +101,53 @@ def test_acknowledged_updater_is_not_marked_failed_after_launcher_timeout(admin)
         run = service.enqueue(SimpleNamespace(pk=1,username='admin'))
     assert service.status(run)['state'] == 'running'
     assert (service.root()/'request.lock').exists()
+
+
+def test_maintenance_routes_admin_to_update_without_losing_session(admin, settings):
+    (settings.STATE_DIR / 'maintenance.flag').touch()
+    session_user = admin.session['_auth_user_id']
+    response = admin.get('/python/jobs/')
+    assert response.status_code == 302 and response.url == reverse('portal_update')
+    page = admin.get(response.url)
+    assert page.status_code == 200 and 'Обновление портала' in page.content.decode()
+    assert admin.session['_auth_user_id'] == session_user
+    live = admin.get('/python/jobs/', HTTP_X_ETL_LIVE='1')
+    assert live.status_code == 503 and live.headers['X-ETL-Update-URL'] == reverse('portal_update')
+    (settings.STATE_DIR / 'maintenance.flag').unlink()
+    assert admin.get('/python/jobs/').status_code == 200
+
+
+def test_update_navigation_preserves_login_return_and_non_admin_permissions(client, django_user_model, settings, tmp_path):
+    settings.STATE_DIR = tmp_path
+    (tmp_path / 'maintenance.flag').touch()
+    response = client.get(reverse('portal_update'))
+    assert response.status_code == 302 and 'next=/administration/update/' in response.url
+    viewer = django_user_model.objects.create_user('maintenance-viewer', is_staff=True)
+    client.force_login(viewer)
+    assert client.get(reverse('portal_update')).status_code == 403
+    assert client.get('/python/jobs/').status_code == 403
+
+
+def test_existing_authenticated_session_is_adopted_without_logging_out(admin, settings):
+    name = settings.SESSION_COOKIE_NAME
+    assert name != 'sessionid'
+    key = admin.cookies[name].value
+    del admin.cookies[name]
+    admin.cookies['sessionid'] = key
+    response = admin.get(reverse('portal_update'))
+    assert response.status_code == 200
+    assert response.cookies[name].value == key
+    assert admin.session['_auth_user_id']
+    # The unrelated application's legacy cookie is not overwritten or deleted.
+    assert 'sessionid' not in response.cookies
+
+
+def test_unrelated_legacy_session_cannot_authenticate_and_has_no_effect_on_portal_cookie(admin, settings):
+    name = settings.SESSION_COOKIE_NAME
+    client = Client()
+    client.cookies['sessionid'] = 'x' * 32
+    response = client.get(reverse('portal_update'))
+    assert response.status_code == 302 and '/login/' in response.url
+    assert name not in response.cookies or (response.cookies[name].value == '' and str(response.cookies[name]['max-age']) == '0')
+    admin.cookies['sessionid'] = 'x' * 32
+    assert admin.get(reverse('portal_update')).status_code == 200

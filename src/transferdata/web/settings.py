@@ -42,7 +42,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
+    "transferdata.web.portal_update.middleware.PortalSessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -73,6 +73,10 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = STATE_DIR / "static"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+# Cookie scope ignores TCP ports: avoid collisions with other Django apps on the same host.
+_cookie_prefix = 'etl_dev_yds' if DEPLOYMENT['profile'] == 'yds' else 'etl_dev'
+SESSION_COOKIE_NAME = _cookie_prefix + '_sessionid'
+CSRF_COOKIE_NAME = _cookie_prefix + '_csrftoken'
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = os.environ.get("TRANSFERDATA_HTTPS", "0") == "1"
