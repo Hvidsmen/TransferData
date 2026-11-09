@@ -9,6 +9,7 @@ from transferdata.erp.control.models import DatabaseConnection
 from transferdata.erp.engine.connections import connect
 from .models import Run, StepRun
 from .steps import validate_steps, procedure_sql
+from .handlers import connection_from_snapshot
 
 
 class ProcedureStepError(Exception):
@@ -30,7 +31,7 @@ def prepare_snapshot(job, *, skip=(), resume_from=None, start_at=None):
         if job.handler != 'sql_pipeline':
             raise ValidationError('Задание больше не является цепочкой.')
         from transferdata.erp.control.onec import connection_fingerprint
-        saved_connection = DatabaseConnection(**config['connection'])
+        saved_connection = connection_from_snapshot(config['connection'])
         current_connection = DatabaseConnection.objects.filter(pk=saved_connection.pk, is_active=True).first()
         if not current_connection or connection_fingerprint(current_connection) != connection_fingerprint(saved_connection):
             raise ValidationError('Исходное подключение отключено или изменено. Проверьте настройки и создайте новый полный запуск.')
@@ -81,12 +82,11 @@ def recover_steps():
 
 def execute_pipeline(run, progress):
     config = run.snapshot
-    validate_steps(config['steps'])
-    connection = DatabaseConnection(**config['connection'])
     mode = config['transaction_mode']
     started = time.monotonic()
     current = None
     committing = False
+    phase = 'configuration'
     def report(message):
         completed = run.step_runs.exclude(status__in=['pending', 'running']).count()
         Run.objects.filter(pk=run.pk).update(completed=completed, message=message)
@@ -104,6 +104,9 @@ def execute_pipeline(run, progress):
         except Exception:
             return False
     try:
+        validate_steps(config['steps'])
+        connection = connection_from_snapshot(config['connection'])
+        phase = 'connection'
         with connect(connection) as db:
             try:
                 for index, step in enumerate(config['steps']):
@@ -115,12 +118,14 @@ def execute_pipeline(run, progress):
                         run.step_runs.filter(status='done').update(status='rolled_back' if rolled else 'unknown')
                         terminal('stopped' if rolled else 'interrupted', 'Остановлено на границе шагов. ' + ('Фиксации предыдущих шагов сохранены.' if mode == 'per_step' else 'Запрошен откат общей транзакции; проверьте внутренние COMMIT процедур.'))
                         return
+                    phase = 'dependencies'
                     required = set(step.get('depends_on', []))
                     successful = set(run.step_runs.filter(status__in=['success', 'done', 'preserved']).values_list('key', flat=True))
                     if required - successful:
                         raise ValidationError('Не выполнены обязательные шаги.')
                     current.status = 'running'; current.started_at = timezone.now(); current.save()
                     report(f'Шаг {index+1} из {len(config["steps"])}: {step["name"]}')
+                    phase = 'procedure'
                     step_start = time.monotonic()
                     db.timeout = step.get('timeout', 300)
                     cursor = db.cursor()
@@ -143,6 +148,7 @@ def execute_pipeline(run, progress):
                     current.seconds = time.monotonic()-step_start
                     current.finished_at = timezone.now()
                     if mode == 'per_step':
+                        phase = 'commit'
                         committing = True
                         db.commit()
                         # Commit and checkpoint are not a distributed transaction. Any failure is ambiguous.
@@ -157,6 +163,7 @@ def execute_pipeline(run, progress):
                     terminal('stopped' if rolled else 'interrupted', 'Остановлено после последнего шага. ' + ('Шаги уже зафиксированы.' if mode == 'per_step' else 'Общая транзакция отменена; проверьте внутренние COMMIT процедур.'))
                     return
                 if mode == 'atomic':
+                    phase = 'commit'
                     committing = True
                     db.commit()
                     run.step_runs.filter(status='done').update(status='success', message='COMMIT общей транзакции выполнен.')
@@ -175,5 +182,21 @@ def execute_pipeline(run, progress):
         # ODBC text can contain SQL, parameters or secrets. Retain category and SQLSTATE only.
         state = str(exc.args[0]) if exc.args else ''
         state = state if re.fullmatch(r'[A-Z0-9]{5}', state) else ''
+        phase_label = {'configuration': 'Проверка настроек цепочки', 'connection': 'Подключение к SQL Server',
+                       'dependencies': 'Проверка зависимостей', 'procedure': 'Выполнение процедуры', 'commit': 'Фиксация результатов'}.get(phase, 'Цепочка')
+        hint = ''
+        if isinstance(exc, ValidationError):
+            if phase == 'connection':
+                labels = {'name': 'название профиля', 'id': 'идентификатор профиля', 'server': 'сервер', 'port': 'порт',
+                    'database': 'база', 'driver': 'ODBC-драйвер', 'authentication_type': 'тип входа',
+                    'username': 'SQL-пользователь', 'credential_reference': 'имя переменной секрета',
+                    'connection_timeout': 'таймаут подключения', 'query_timeout': 'таймаут запроса'}
+                fields = [labels[k] for k in getattr(exc, 'error_dict', {}) if k in labels]
+                hint = ' Проверьте поля профиля: ' + ', '.join(fields) + '.' if fields else ' Проверьте настройки профиля подключения.'
+            elif phase == 'dependencies':
+                hint = ' Не выполнены обязательные предыдущие шаги.'
+            else:
+                hint = ' Проверьте порядок, включение и зависимости шагов.'
         terminal('interrupted' if committing else 'failed',
-            f'Цепочка остановлена: {type(exc).__name__}' + (f' · код {exc.return_code}' if isinstance(exc, ProcedureStepError) else '') + (f' · SQLSTATE {state}' if state else '') + '. Проверьте результат текущего шага перед повтором.')
+            f'{phase_label}: {type(exc).__name__}' + (f' · код {exc.return_code}' if isinstance(exc, ProcedureStepError) else '') + (f' · SQLSTATE {state}' if state else '') + '.' + hint +
+            (' SQL-процедуры ещё не запускались.' if phase in ('configuration', 'connection') else ' Проверьте результат текущего шага перед повтором.'))

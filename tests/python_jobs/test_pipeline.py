@@ -44,6 +44,7 @@ class FakeDB:
         self.commits += 1
         if self.commits == self.commit_failure: raise pyodbc.Error('08S01', 'private connection error')
     def rollback(self): self.rollbacks += 1
+    def close(self): pass
 
 
 def execute(job, db):
@@ -305,3 +306,27 @@ def test_post_migrate_provisions_only_current_yds_database(settings):
         settings.DEPLOYMENT = {'profile': 'default'}
         provision_yds(None)
         command.assert_not_called()
+
+
+def test_pipeline_real_connection_validation_uses_existing_profile(pipeline):
+    run, _ = enqueue(pipeline)
+    with pytest.raises(ValidationError):
+        DatabaseConnection(**run.snapshot['connection']).full_clean()
+    db = FakeDB()
+    with patch('transferdata.erp.engine.connections.pyodbc.connect', return_value=db) as driver:
+        execute_pipeline(run, lambda **event: None)
+    run.refresh_from_db()
+    assert run.status == 'success'
+    assert driver.call_count == 1
+    assert db.commits == 1 and len(db.calls) == 3
+
+
+def test_connection_validation_failure_has_phase_and_no_private_values(pipeline):
+    run, _ = enqueue(pipeline)
+    error = ValidationError({'driver': ['private password or SQL text']})
+    with patch('transferdata.python_jobs.pipeline.connect', side_effect=error):
+        execute_pipeline(run, lambda **event: None)
+    run.refresh_from_db()
+    assert 'Подключение к SQL Server' in run.message and 'ODBC-драйвер' in run.message
+    assert 'ещё не запускались' in run.message and 'private' not in run.message
+    assert all(s.status == 'pending' for s in run.step_runs.all())

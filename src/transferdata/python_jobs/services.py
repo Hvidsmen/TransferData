@@ -156,7 +156,8 @@ def execute_next():
         elif process.returncode != 0 or (builtin and child_result is None):
             raise ChildProcessError
         if pipeline:
-            output.append(run.message)
+            if not output or output[-1] != run.message:
+                output.append(run.message)
             return True
         run.status = 'success'
         run.message = ('Новых или неполных документов не найдено' if run.total == 0 else 'Обработка завершена') if builtin else 'Python-файл завершён, код возврата 0'
