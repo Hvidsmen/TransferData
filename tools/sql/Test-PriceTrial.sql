@@ -18,6 +18,9 @@ BEGIN
     THROW 51000, 'Existing trial data found. Fixture test refused.', 1;
 END;
 BEGIN TRY
+    /* A failed earlier batch can leave its session-local fixture tables alive.
+       Run this test in a dedicated SSMS query window. */
+    DROP TABLE IF EXISTS #Raw, #Nomen, #Currencies, #Kinds;
     CREATE TABLE #Raw (
         _Period datetime2(0), _RecorderTRef binary(4), _RecorderRRef binary(16),
         _LineNo numeric(9,0), _Active binary(1), _Fld48936RRef binary(16),
@@ -73,6 +76,10 @@ BEGIN TRY
         THROW 51000, 'Moving horizon failed.', 1;
 
     /* Invalid staging must not erase previously committed state. */
+    /* ApplyStage indexed the caller-owned temp table on its first invocation.
+       Remove that fixture index so malformed staging reaches the procedure's
+       own duplicate-reference guard rather than failing here with error 2601. */
+    DROP INDEX TrialKindKey ON #Kinds;
     INSERT #Kinds SELECT * FROM #Kinds;
     BEGIN TRY
         EXEC price_trial.ApplyStage @AsOf = '20261116';
@@ -86,6 +93,7 @@ BEGIN TRY
 
     DROP TABLE price_trial.Intervals, price_trial.Prices, price_trial.Raw,
         price_trial.Nomen, price_trial.Currencies, price_trial.Kinds, price_trial.State;
+    DROP TABLE #Raw, #Nomen, #Currencies, #Kinds;
     EXEC sys.sp_releaseapplock @Resource = N'price_trial.Refresh', @LockOwner = 'Session';
     PRINT 'PASS: initial load, correction, deletion, insert, rename, regroup, horizon, failure preservation.';
 END TRY
@@ -93,6 +101,7 @@ BEGIN CATCH
     IF XACT_STATE() <> 0 ROLLBACK;
     DROP TABLE IF EXISTS price_trial.Intervals, price_trial.Prices, price_trial.Raw,
         price_trial.Nomen, price_trial.Currencies, price_trial.Kinds, price_trial.State;
+    DROP TABLE IF EXISTS #Raw, #Nomen, #Currencies, #Kinds;
     EXEC sys.sp_releaseapplock @Resource = N'price_trial.Refresh', @LockOwner = 'Session';
     THROW;
 END CATCH;
