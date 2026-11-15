@@ -249,6 +249,23 @@ BEGIN
             CREATE TABLE price_trial.State (AsOf datetime NOT NULL);
         DELETE FROM price_trial.State;
         INSERT price_trial.State VALUES (@AsOf);
+        /* Optional production publication extension. Persist the UNION of all
+           pending changes, not just the last refresh: a failed publication or
+           a manual Refresh must not lose an earlier delta. Disabled by default.
+           Installation/activation lives in Install-PricePublication.sql. */
+        IF OBJECT_ID(N'price_trial.PublicationControl', N'U') IS NOT NULL
+        BEGIN
+            IF EXISTS (SELECT 1 FROM price_trial.PublicationControl WHERE Active = 1)
+            BEGIN
+                INSERT price_trial.PendingKeys
+                SELECT k.* FROM #Keys AS k
+                WHERE NOT EXISTS (SELECT 1 FROM price_trial.PendingKeys AS old
+                    WHERE old._Fld2951 = k._Fld2951
+                      AND old._RecorderTRef = k._RecorderTRef
+                      AND old._RecorderRRef = k._RecorderRRef AND old._LineNo = k._LineNo);
+                INSERT price_trial.PendingGroups SELECT * FROM #Groups;
+            END;
+        END;
         IF @RunId IS NOT NULL
             INSERT price_trial.Phases VALUES (@RunId, 'save_state', @phase, SYSDATETIME());
         COMMIT TRANSACTION;
