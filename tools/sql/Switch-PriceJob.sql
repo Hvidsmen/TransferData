@@ -9,6 +9,8 @@ GO
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 IF @@TRANCOUNT<>0 THROW 51100,'Use a new query window without a transaction.',1;
+IF @@LOCK_TIMEOUT<>-1
+    THROW 51100,'Use a new default SSMS window with LOCK_TIMEOUT -1.',1;
 IF LOWER(CONVERT(nvarchar(128),SERVERPROPERTY('MachineName')))<>N'vm-dwh'
     THROW 51100,'This cutover is only for vm-dwh.',1;
 IF OBJECT_ID(N'price_trial.PublicationControl',N'U') IS NULL
@@ -16,7 +18,7 @@ IF OBJECT_ID(N'price_trial.PublicationControl',N'U') IS NULL
 DECLARE @job uniqueidentifier='DBDF6C37-D349-4123-B4AC-29302CD125AD',
     @step int=1,@old nvarchar(max),@enabled bit,@lock int,@asof datetime,
     @new nvarchar(max)=N'EXEC [DataWH].[price_trial].[RefreshAndPublish];',
-    @cut uniqueidentifier=NEWID(),@saved bit=0,@timeout int=@@LOCK_TIMEOUT,@rc int;
+    @cut uniqueidentifier=NEWID(),@saved bit=0,@rc int;
 EXEC @lock=sys.sp_getapplock @Resource=N'price_trial.Refresh',
     @LockMode='Exclusive',@LockOwner='Session',@LockTimeout=0;
 IF @lock<0 THROW 51100,'Another trial/publication is running.',1;
@@ -82,14 +84,14 @@ BEGIN TRY
     EXEC @rc=msdb.dbo.sp_update_job @job_id=@job,@enabled=@enabled;
     IF @rc<>0 THROW 51100,'Could not restore enabled state.',1;
     COMMIT TRANSACTION;
-    SET LOCK_TIMEOUT @timeout;
+    SET LOCK_TIMEOUT -1;
     EXEC sys.sp_releaseapplock @Resource=N'price_trial.Refresh',@LockOwner='Session';
     SELECT N'SWITCHED' AS Result,@job AS JobId,@step AS StepId,@enabled AS JobEnabled,
         @asof AS BaselineAsOf,@cut AS BackupId,@new AS NewCommand;
 END TRY
 BEGIN CATCH
     IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
-    SET LOCK_TIMEOUT @timeout;
+    SET LOCK_TIMEOUT -1;
     IF @saved=1 AND EXISTS (SELECT 1 FROM msdb.dbo.sysjobsteps
         WHERE job_id=@job AND step_id=@step AND command=@old)
         EXEC msdb.dbo.sp_update_job @job_id=@job,@enabled=@enabled;
