@@ -1,6 +1,6 @@
 /* vm-dwh / DataWH. Install after the updated Install-PriceTrial.sql.
    Installation does not publish data, change Agent or read the ERP register.
-   Read docs/PRICE_CUTOVER.md. ApplyStage must contain the pending-delta hook. */
+   Read tools/sql/архив/PRICE_CUTOVER.md. ApplyStage must contain the pending-delta hook. */
 USE [DataWH];
 GO
 IF OBJECT_ID(N'price_trial.State', N'U') IS NULL

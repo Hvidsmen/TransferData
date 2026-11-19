@@ -1,4 +1,4 @@
-/* ACTUAL CUTOVER. Read docs/PRICE_CUTOVER.md first. Run on vm-dwh outside ETL.
+/* ACTUAL CUTOVER. Read tools/sql/архив/PRICE_CUTOVER.md first. Run on vm-dwh outside ETL.
    Full three-table validation + three large key-index builds may take hours.
    Never runs/stops a job. Preserves schedules, branches and other job steps.
    On ordinary failure restores enabled state and leaves old command/data intact.

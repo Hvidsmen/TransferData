@@ -1,6 +1,6 @@
 /* Execute on vm-dwh, DataWH. SQL Server 2016 SP1 or later.
    Creates an isolated trial only. Never changes Agent, ERP, 1CUnloading or erp.*.
-   Installation does NOT read source rows. See docs/PRICE_TRIAL.md before running.
+   Installation does NOT read source rows. See tools/sql/архив/PRICE_TRIAL.md before running.
 */
 USE [DataWH];
 GO
