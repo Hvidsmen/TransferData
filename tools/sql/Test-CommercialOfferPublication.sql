@@ -5,6 +5,14 @@ GO
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 IF @@TRANCOUNT<>0 THROW 51300,'Use a new query window.',1;
+/* Fast mode must never suppress ordinary production checks. No ERP reads. */
+BEGIN TRY
+ EXEC document_trial.RefreshOfferLines @Cutover=0,@SkipCutoverFullCheck=1;
+ THROW 51301,'Ordinary production accepted the cutover-only skip option.',1;
+END TRY
+BEGIN CATCH
+ IF ERROR_NUMBER()<>51300 OR ERROR_MESSAGE()<>'Skipping full comparison is allowed only for an explicit fast cutover.' THROW;
+END CATCH;
 CREATE TABLE #OfferPublishSource(Id int NOT NULL,Label nvarchar(30) NULL);
 CREATE TABLE #OfferTarget(Id int NOT NULL CHECK(Id>0),Label nvarchar(30) NULL);
 CREATE NONCLUSTERED INDEX FixtureIndex ON #OfferTarget(Label);

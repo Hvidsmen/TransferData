@@ -160,12 +160,15 @@ BEGIN
 END;
 GO
 CREATE OR ALTER PROCEDURE document_trial.RefreshOfferLines
- @FullCheck bit=0,@Cutover bit=0
+ @FullCheck bit=0,@Cutover bit=0,@SkipCutoverFullCheck bit=0
 AS
 BEGIN
  SET NOCOUNT ON;
  SET XACT_ABORT ON;
  IF @@TRANCOUNT<>0 THROW 51300,'Run without an outer transaction.',1;
+ IF @SkipCutoverFullCheck IS NULL THROW 51300,'NULL skip option refused.',1;
+ IF @SkipCutoverFullCheck=1 AND (@Cutover<>1 OR @Cutover IS NULL OR @FullCheck<>0 OR @FullCheck IS NULL)
+  THROW 51300,'Skipping full comparison is allowed only for an explicit fast cutover.',1;
  IF LOWER(CONVERT(nvarchar(128),SERVERPROPERTY('MachineName')))<>N'vm-dwh'
   THROW 51300,'Only vm-dwh is supported.',1;
  DECLARE @lock int,@run uniqueidentifier=NEWID(),@full bit=0,@worker nvarchar(max),@sql nvarchar(max),
@@ -184,7 +187,17 @@ BEGIN
   SET @oid=OBJECT_ID(N'erp.[Документы.бит_КоммерческоеПредложениеКлиентуТовары]',N'U');
   IF @oid IS NULL OR EXISTS(SELECT 1 FROM document_trial.OfferPublicationControl WHERE Id=1 AND TargetObjectId IS NOT NULL AND TargetObjectId<>@oid)
    THROW 51300,'Live table identity changed.',1;
-  IF @Cutover=1 OR EXISTS(SELECT 1 FROM document_trial.OfferPublicationControl WHERE Id=1 AND
+  IF @SkipCutoverFullCheck=1
+  BEGIN
+   /* Reuse an actual previous MATCH; do not manufacture a new full-check date. */
+   IF NOT EXISTS(SELECT 1 FROM document_trial.OfferDeltaState s
+    JOIN document_trial.OfferDeltaRuns r ON r.RunId=s.LastVerifiedRunId
+    WHERE s.Id=1 AND s.LastVerifiedAtUTC IS NOT NULL AND r.Status='success'
+     AND r.MissingGroups=0 AND r.ExtraGroups=0)
+    THROW 51300,'Fast cutover requires a recorded successful full trial comparison.',1;
+   RAISERROR('Fast cutover: reusing prior MATCH; no full reference or value comparison.',10,1) WITH NOWAIT;
+  END
+  ELSE IF @Cutover=1 OR EXISTS(SELECT 1 FROM document_trial.OfferPublicationControl WHERE Id=1 AND
     (LastFullCheckUTC IS NULL OR LastFullCheckUTC<DATEADD(day,-7,SYSUTCDATETIME()))) SET @FullCheck=1;
   SET @suffix=REPLACE(CONVERT(varchar(36),@run),'-','');
   SET @target=N'[document_trial].'+QUOTENAME(N'OfferPublish_'+@suffix);
@@ -529,11 +542,15 @@ END CATCH;';
   IF @@TRANCOUNT<>1 THROW 51300,'Unexpected publication transaction depth.',1;
   IF @FullCheck=1 EXEC document_trial.CompareOfferTables @baseTarget=@reference,@candidateTarget=@target;
   EXEC document_trial.ReplaceOfferRows @source=@target,@ExpectedObjectId=@oid;
+  IF @SkipCutoverFullCheck=1
+   UPDATE document_trial.OfferPublicationControl SET LastFullCheckUTC=COALESCE(LastFullCheckUTC,
+    (SELECT LastVerifiedAtUTC FROM document_trial.OfferDeltaState WHERE Id=1)) WHERE Id=1;
   UPDATE document_trial.OfferPublicationControl SET LastRunId=@run,
    LastFullCheckUTC=CASE WHEN @FullCheck=1 THEN SYSUTCDATETIME() ELSE LastFullCheckUTC END WHERE Id=1;
   /* Verified means FULL source comparison only, never merely a successful load. */
   IF @FullCheck=1 UPDATE document_trial.OfferDeltaState SET Verified=1,LastVerifiedRunId=@run,LastVerifiedAtUTC=SYSUTCDATETIME() WHERE Id=1;
   UPDATE document_trial.OfferDeltaRuns SET Status='success',CompletedAtUTC=SYSUTCDATETIME(),
+   MissingGroups=CASE WHEN @FullCheck=1 THEN 0 ELSE NULL END,ExtraGroups=CASE WHEN @FullCheck=1 THEN 0 ELSE NULL END,
    CandidateMilliseconds=DATEDIFF_BIG(millisecond,@started,SYSUTCDATETIME()),CandidateObjectId=OBJECT_ID(@target,N'U') WHERE RunId=@run;
   SET @sql=N'DROP TABLE '+@target+N';'; EXEC sys.sp_executesql @sql;
   IF @FullCheck=1 BEGIN SET @sql=N'DROP TABLE '+@reference+N';'; EXEC sys.sp_executesql @sql; END;
