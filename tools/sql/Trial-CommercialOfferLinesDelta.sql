@@ -32,6 +32,8 @@ SET @candidateName=N'OfferDeltaResult_'+@suffix;
 SET @baseTarget=N'[document_trial].'+QUOTENAME(@baseName);
 SET @candidateTarget=N'[document_trial].'+QUOTENAME(@candidateName);
 BEGIN TRY
+    IF OBJECT_ID(N'document_trial.OfferPublicationControl',N'U') IS NOT NULL
+        EXEC sys.sp_executesql N'IF EXISTS(SELECT 1 FROM document_trial.OfferPublicationControl WHERE Active=1) THROW 51290,''Production owns this cache. Roll back the offer job before running trials.'',1;';
     SET @parts=CASE WHEN OBJECT_ID(N'document_trial.OfferDeltaRawCache',N'U') IS NULL THEN 0 ELSE 1 END
         +CASE WHEN OBJECT_ID(N'document_trial.OfferDeltaHeaderCache',N'U') IS NULL THEN 0 ELSE 1 END
         +CASE WHEN OBJECT_ID(N'document_trial.OfferDeltaState',N'U') IS NULL THEN 0 ELSE 1 END;
