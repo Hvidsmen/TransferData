@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 
 
-SQL_FILES = sorted((Path(__file__).resolve().parents[1] / "tools" / "sql").glob("*.sql"))
+SQL_FILES = sorted((Path(__file__).resolve().parents[1] / "tools" / "sql").rglob("*.sql"))
 
 
-@pytest.mark.parametrize("path", SQL_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("path", SQL_FILES, ids=lambda path: str(path.relative_to(Path(__file__).resolve().parents[1] / "tools" / "sql")))
 def test_lock_timeout_uses_an_integer_literal(path):
     # SQL Server rejects SET LOCK_TIMEOUT @variable with error 102; sqlfluff's
     # T-SQL grammar accepts it. Keep this check alongside parser validation.

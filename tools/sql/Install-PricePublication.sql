@@ -304,7 +304,7 @@ BEGIN
     IF @lock < 0 THROW 51100, 'Another refresh/publication is running.', 1;
     BEGIN TRY
         IF NOT EXISTS (SELECT 1 FROM price_trial.PublicationControl WHERE Id=1 AND Active=1)
-            THROW 51100, 'Publication is not active. Run Switch-PriceJob.sql first.', 1;
+            THROW 51100, 'Publication is not active. Run tools/sql/архив/Switch-PriceJob.sql first.', 1;
         IF NOT EXISTS (SELECT 1 FROM price_trial.PublicationControl
             WHERE SourceObjectId=OBJECT_ID(N'[1CUnloading].[1c].[РегистрСведений.ЦеныНоменклатуры]', N'U')
               AND PricesObjectId=OBJECT_ID(N'erp.[РегистрСведений.ЦеныНоменклатуры]', N'U')
