@@ -5,6 +5,34 @@ GO
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 IF @@TRANCOUNT<>0 THROW 51300,'Use a new query window.',1;
+/* Actual indexed header validator: unchanged snapshots pass, additions,
+   deletions and lower/higher versions fail. Caller fixtures only; no ERP. */
+CREATE TABLE #Headers([_Fld2951] int NOT NULL,[_IDRRef] binary(16) NOT NULL,VersionBytes binary(8) NOT NULL);
+CREATE UNIQUE CLUSTERED INDEX HeaderFixtureKey ON #Headers([_Fld2951],[_IDRRef]);
+CREATE TABLE #HeadersAfter([_Fld2951] int NOT NULL,[_IDRRef] binary(16) NOT NULL,VersionBytes binary(8) NOT NULL);
+CREATE UNIQUE CLUSTERED INDEX HeaderAfterFixtureKey ON #HeadersAfter([_Fld2951],[_IDRRef]);
+INSERT #Headers VALUES(1,0x01,0x02),(2,0x01,0x03);
+INSERT #HeadersAfter SELECT * FROM #Headers;
+EXEC document_trial.ValidateOfferHeaders;
+DECLARE @scenario int=1;
+WHILE @scenario<=4
+BEGIN
+ DELETE FROM #HeadersAfter;
+ INSERT #HeadersAfter SELECT * FROM #Headers;
+ IF @scenario=1 INSERT #HeadersAfter VALUES(1,0x03,0x01);
+ IF @scenario=2 DELETE FROM #HeadersAfter WHERE [_Fld2951]=2;
+ IF @scenario=3 UPDATE #HeadersAfter SET VersionBytes=0x01 WHERE [_Fld2951]=1;
+ IF @scenario=4 UPDATE #HeadersAfter SET VersionBytes=0x04 WHERE [_Fld2951]=1;
+ BEGIN TRY
+  EXEC document_trial.ValidateOfferHeaders;
+  THROW 51301,'Changed header snapshot was accepted.',1;
+ END TRY
+ BEGIN CATCH
+  IF ERROR_NUMBER()<>51300 OR ERROR_MESSAGE()<>'ERP headers changed during read; retry after the source is stable.' THROW;
+ END CATCH;
+ SET @scenario=@scenario+1;
+END;
+DROP TABLE #Headers,#HeadersAfter;
 /* Fast mode must never suppress ordinary production checks. No ERP reads. */
 BEGIN TRY
  EXEC document_trial.RefreshOfferLines @Cutover=0,@SkipCutoverFullCheck=1;
@@ -81,4 +109,4 @@ BEGIN CATCH
  IF ERROR_NUMBER()<>51300 OR ERROR_MESSAGE()<>'Full source comparison differs; nothing published.' THROW;
 END CATCH;
 DROP TABLE #OfferPublishSource,#OfferTarget,#Checkpoint;
-PRINT 'PASS: replacement, duplicates, empty result, identity/index preservation, failed INSERT rollback and exact duplicate comparison.';
+PRINT 'PASS: indexed header recheck (add/delete/version), replacement, duplicates, empty result, identity/index preservation, failed INSERT rollback and exact duplicate comparison.';

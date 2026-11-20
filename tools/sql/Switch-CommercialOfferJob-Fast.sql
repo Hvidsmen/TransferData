@@ -6,11 +6,15 @@ GO
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 IF @@TRANCOUNT<>0 THROW 51300,'Use a new window without a transaction.',1;
+IF @@LOCK_TIMEOUT<>-1 THROW 51300,'Use a fresh default SSMS window with LOCK_TIMEOUT -1.',1;
 IF LOWER(CONVERT(nvarchar(128),SERVERPROPERTY('MachineName')))<>N'vm-dwh' THROW 51300,'Only vm-dwh.',1;
 IF OBJECT_ID(N'document_trial.RefreshOfferLines',N'P') IS NULL THROW 51300,'Install publication first.',1;
 IF OBJECT_DEFINITION(OBJECT_ID(N'document_trial.RefreshOfferLines')) NOT LIKE N'%@SkipCutoverFullCheck%'
  OR OBJECT_DEFINITION(OBJECT_ID(N'document_trial.RefreshOfferLines')) IS NULL
  THROW 51300,'Run updated Install-CommercialOfferPublication.sql first.',1;
+IF OBJECT_DEFINITION(OBJECT_ID(N'document_trial.RefreshOfferLines')) NOT LIKE N'%OfferPublicationDiagnosticsV2%'
+ OR OBJECT_DEFINITION(OBJECT_ID(N'document_trial.RefreshOfferLines')) IS NULL
+ THROW 51300,'Install updated publication diagnostics before switching.',1;
 DECLARE @job uniqueidentifier,@step int=41,@old nvarchar(max),@enabled bit,@rc int,@lock int,
  @cut uniqueidentifier=NEWID(),@saved bit=0,@expected nvarchar(max)=N'EXEC [1CUnloading].dbo.transferTalbeToDatWHErp ''Документ.бит_КоммерческоеПредложениеКлиенту''
 EXEC [1CUnloading].dbo.transferTalbeToDatWHErp ''Документы.бит_КоммерческоеПредложениеКлиентуТовары''
@@ -24,9 +28,12 @@ CREATE NONCLUSTERED INDEX IX_DocumentKey ON DataWH.erp.[Документ.бит_
 CREATE NONCLUSTERED INDEX IX_ДатНомерДата ON DataWH.erp.[Документ.бит_КоммерческоеПредложениеКлиенту](Номер);
 EXEC [DataWH].[document_trial].[RefreshOfferLines];',
  @norm nvarchar(max),@expectedNorm nvarchar(max),@oid int;
+IF APPLOCK_MODE(N'public',N'document_trial.MeasureCommercialOffers',N'Session')<>N'NoLock'
+ THROW 51300,'This SSMS session still owns an offer lock; close/reconnect it before retry.',1;
 EXEC @lock=sys.sp_getapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockMode='Exclusive',@LockOwner='Session',@LockTimeout=0;
 IF @lock<0 THROW 51300,'Another offer operation is running.',1;
 BEGIN TRY
+ SET LOCK_TIMEOUT 30000;
  IF EXISTS(SELECT 1 FROM document_trial.OfferPublicationControl WHERE Active=1) THROW 51300,'Already switched.',1;
  IF EXISTS(SELECT 1 FROM document_trial.OfferPublicationControl WHERE CutoverId IS NOT NULL AND RolledBackAtUTC IS NULL)
   THROW 51300,'Previous attempt needs Rollback-CommercialOfferJob.sql before retry.',1;
@@ -81,12 +88,19 @@ BEGIN TRY
  UPDATE document_trial.OfferPublicationControl SET Active=1,SwitchedAtUTC=SYSUTCDATETIME(),RolledBackAtUTC=NULL WHERE Id=1;
  COMMIT TRANSACTION;
  EXEC sys.sp_releaseapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockOwner='Session';
+ SET LOCK_TIMEOUT -1;
  SELECT 'SWITCHED' AS Result,@job AS JobId,@step AS StepId,@enabled AS JobEnabled,@cut AS BackupId,@new AS NewCommand,CAST(0 AS bit) AS FullSourceChecked;
 END TRY
 BEGIN CATCH
  IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
- IF @saved=1 AND EXISTS(SELECT 1 FROM msdb.dbo.sysjobsteps WHERE job_id=@job AND step_id=@step AND command=@old)
-  EXEC msdb.dbo.sp_update_job @job_id=@job,@enabled=@enabled;
+ BEGIN TRY
+  IF @saved=1 AND EXISTS(SELECT 1 FROM msdb.dbo.sysjobsteps WHERE job_id=@job AND step_id=@step AND command=@old)
+   EXEC msdb.dbo.sp_update_job @job_id=@job,@enabled=@enabled;
+ END TRY
+ BEGIN CATCH
+  RAISERROR('Automatic enabled-state restore failed; use Rollback-CommercialOfferJob.sql.',10,1) WITH NOWAIT;
+ END CATCH;
  EXEC sys.sp_releaseapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockOwner='Session';
+ SET LOCK_TIMEOUT -1;
  THROW;
 END CATCH;

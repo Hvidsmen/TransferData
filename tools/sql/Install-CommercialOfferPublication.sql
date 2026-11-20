@@ -3,6 +3,7 @@
 USE [DataWH];
 GO
 SET NOCOUNT ON;
+SET LOCK_TIMEOUT 30000;
 IF LOWER(CONVERT(nvarchar(128),SERVERPROPERTY('MachineName')))<>N'vm-dwh'
  THROW 51300,'This installation is only for vm-dwh.',1;
 IF OBJECT_ID(N'document_trial.OfferDeltaState',N'U') IS NULL
@@ -113,6 +114,7 @@ BEGIN
   THROW 51300,'Unexpected publication source.',1;
  IF @target<>N'[erp].[Документы.бит_КоммерческоеПредложениеКлиентуТовары]' AND @target NOT LIKE N'#%'
   THROW 51300,'Unexpected publication target.',1;
+ RAISERROR('Offer publication: acquire_live_lock (maximum lock wait 30 seconds in refresh).',10,1) WITH NOWAIT;
  /* Acquire the live table lock before metadata checks; retain it until commit. */
  SET @sql=N'DECLARE @n int; SELECT TOP(1) @n=1 FROM '+@target+N' WITH(TABLOCKX,HOLDLOCK);';
  EXEC sys.sp_executesql @sql;
@@ -155,27 +157,55 @@ BEGIN
  FROM #OfferTargetColumns;
  /* A table lock prevents ordinary readers observing a partially replaced set.
     NOLOCK consumers have no consistency guarantee. */
- SET @sql=N'DELETE FROM '+@target+N' WITH(TABLOCKX); INSERT '+@target+N' ('+@cols+N') SELECT '+@cols+N' FROM '+@source+N';';
+ SET @sql=N'RAISERROR(''Offer publication: delete_live_rows'',10,1) WITH NOWAIT; DELETE FROM '+@target+N' WITH(TABLOCKX);
+ RAISERROR(''Offer publication: insert_live_rows'',10,1) WITH NOWAIT; INSERT '+@target+N' ('+@cols+N') SELECT '+@cols+N' FROM '+@source+N';';
  EXEC sys.sp_executesql @sql;
+END;
+GO
+/* Both temp snapshots are caller-owned and have unique tenant/document keys.
+   Indexed anti-joins avoid sorting two complete 730k-row snapshots for EXCEPT. */
+CREATE OR ALTER PROCEDURE document_trial.ValidateOfferHeaders
+AS
+BEGIN
+ SET NOCOUNT ON;
+ IF EXISTS(SELECT 1 FROM #Headers h LEFT JOIN #HeadersAfter n
+  ON n.[_Fld2951]=h.[_Fld2951] AND n.[_IDRRef]=h.[_IDRRef]
+  WHERE n.[_IDRRef] IS NULL OR n.VersionBytes<>h.VersionBytes)
+ OR EXISTS(SELECT 1 FROM #HeadersAfter n LEFT JOIN #Headers h
+  ON n.[_Fld2951]=h.[_Fld2951] AND n.[_IDRRef]=h.[_IDRRef]
+  WHERE h.[_IDRRef] IS NULL)
+  THROW 51300,'ERP headers changed during read; retry after the source is stable.',1;
 END;
 GO
 CREATE OR ALTER PROCEDURE document_trial.RefreshOfferLines
  @FullCheck bit=0,@Cutover bit=0,@SkipCutoverFullCheck bit=0
 AS
+/* OfferPublicationDiagnosticsV2 */
 BEGIN
  SET NOCOUNT ON;
  SET XACT_ABORT ON;
  IF @@TRANCOUNT<>0 THROW 51300,'Run without an outer transaction.',1;
+ IF @@LOCK_TIMEOUT>30000 THROW 51300,'Use a fresh window or LOCK_TIMEOUT at most 30000.',1;
  IF @SkipCutoverFullCheck IS NULL THROW 51300,'NULL skip option refused.',1;
  IF @SkipCutoverFullCheck=1 AND (@Cutover<>1 OR @Cutover IS NULL OR @FullCheck<>0 OR @FullCheck IS NULL)
   THROW 51300,'Skipping full comparison is allowed only for an explicit fast cutover.',1;
  IF LOWER(CONVERT(nvarchar(128),SERVERPROPERTY('MachineName')))<>N'vm-dwh'
   THROW 51300,'Only vm-dwh is supported.',1;
  DECLARE @lock int,@run uniqueidentifier=NEWID(),@full bit=0,@worker nvarchar(max),@sql nvarchar(max),
- @target nvarchar(300),@reference nvarchar(300),@suffix varchar(32),@started datetime2=SYSUTCDATETIME(),@oid int;
- EXEC @lock=sys.sp_getapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockMode='Exclusive',@LockOwner='Session',@LockTimeout=0;
- IF @lock<0 THROW 51300,'Another offer operation is running.',1;
+ @target nvarchar(300),@reference nvarchar(300),@suffix varchar(32),@started datetime2=SYSUTCDATETIME(),@oid int,@ownsLock bit=0,@oldTimeout int=@@LOCK_TIMEOUT,@operationSession int=@@SPID;
+ /* Cutover already owns this lock. Do not acquire it twice: each acquisition
+    needs a release, and cancellation bypasses TRY/CATCH. */
+ IF APPLOCK_MODE(N'public',N'document_trial.MeasureCommercialOffers',N'Session')=N'NoLock'
+ BEGIN
+  EXEC @lock=sys.sp_getapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockMode='Exclusive',@LockOwner='Session',@LockTimeout=0;
+  IF @lock<0 THROW 51300,'Another offer operation is running.',1;
+  SET @ownsLock=1;
+ END
+ ELSE IF NOT (@Cutover=1 AND APPLOCK_MODE(N'public',N'document_trial.MeasureCommercialOffers',N'Session')=N'Exclusive')
+  THROW 51300,'This session already owns an offer lock; reconnect before retry.',1;
  BEGIN TRY
+  IF @oldTimeout=-1 SET LOCK_TIMEOUT 30000;
+  RAISERROR('Offer publication: session %d started; lock waits limited to 30 seconds.',10,1,@operationSession) WITH NOWAIT;
   IF @Cutover IS NULL OR @FullCheck IS NULL THROW 51300,'NULL options refused.',1;
   IF @Cutover=0 AND NOT EXISTS(SELECT 1 FROM document_trial.OfferPublicationControl WHERE Id=1 AND Active=1)
    THROW 51300,'Offer publication is not active.',1;
@@ -204,6 +234,7 @@ BEGIN
   SET @reference=N'[document_trial].'+QUOTENAME(N'OfferAudit_'+@suffix);
   INSERT document_trial.OfferDeltaRuns(RunId,SessionId,Mode,StartedAtUTC,Status,BaselineTable,CandidateTable)
    VALUES(@run,@@SPID,'production',@started,'running',N'OfferAudit_'+@suffix,N'OfferPublish_'+@suffix);
+  SELECT @run AS RunId,@@SPID AS SessionId,@FullCheck AS FullSourceCheck;
   IF @FullCheck=1
   BEGIN
    RAISERROR('Offer publication: full independent source check requested.',10,1) WITH NOWAIT;
@@ -399,11 +430,21 @@ CREATE NONCLUSTERED INDEX IX_Reference ON #OfferCurrencies ([Ссылка]) INCL
 UPDATE document_trial.OfferDeltaPhases SET CompletedAtUTC=SYSUTCDATETIME(),Status=''success'',RowsCopied=NULL
 WHERE RunId=@run AND StepNo=50;
 /* All remote reads still precede the local transaction. */
+RAISERROR(''Offer delta: recheck_header_versions (remote read)'',10,1) WITH NOWAIT;
+INSERT document_trial.OfferDeltaPhases(RunId,StepNo,Phase,StartedAtUTC,Status)
+ VALUES(@run,55,''recheck_header_versions'',SYSUTCDATETIME(),''running'');
 SELECT [_Fld2951],[_IDRRef],CONVERT(binary(8),[_Version]) AS VersionBytes
 INTO #HeadersAfter FROM [erp-db-02.erp.lcl].[ErpBackUp2].[dbo].[_Document80440];
-IF EXISTS (SELECT * FROM #Headers EXCEPT SELECT * FROM #HeadersAfter)
- OR EXISTS (SELECT * FROM #HeadersAfter EXCEPT SELECT * FROM #Headers)
- THROW 51300,''ERP headers changed during read; retry after the source is stable.'',1;
+SET @rows=ROWCOUNT_BIG();
+CREATE UNIQUE CLUSTERED INDEX HeaderAfterKey ON #HeadersAfter ([_Fld2951],[_IDRRef]);
+UPDATE document_trial.OfferDeltaPhases SET Status=''success'',CompletedAtUTC=SYSUTCDATETIME(),RowsCopied=@rows
+ WHERE RunId=@run AND StepNo=55;
+RAISERROR(''Offer delta: compare_header_versions (indexed local snapshots)'',10,1) WITH NOWAIT;
+INSERT document_trial.OfferDeltaPhases(RunId,StepNo,Phase,StartedAtUTC,Status)
+ VALUES(@run,56,''compare_header_versions'',SYSUTCDATETIME(),''running'');
+EXEC document_trial.ValidateOfferHeaders;
+UPDATE document_trial.OfferDeltaPhases SET Status=''success'',CompletedAtUTC=SYSUTCDATETIME()
+ WHERE RunId=@run AND StepNo=56;
 RAISERROR(''Offer delta: apply_private_cache'',10,1) WITH NOWAIT;
 INSERT document_trial.OfferDeltaPhases (RunId,StepNo,Phase,StartedAtUTC,Status)
     VALUES (@run,60,''apply_private_cache'',SYSUTCDATETIME(),''running'');
@@ -541,7 +582,11 @@ END CATCH;';
      either commit together or all roll back. No remote reads below this point. */
   IF @@TRANCOUNT<>1 THROW 51300,'Unexpected publication transaction depth.',1;
   IF @FullCheck=1 EXEC document_trial.CompareOfferTables @baseTarget=@reference,@candidateTarget=@target;
+  RAISERROR('Offer publication: publish_live_rows (lock, DELETE, INSERT).',10,1) WITH NOWAIT;
+  INSERT document_trial.OfferDeltaPhases(RunId,StepNo,Phase,StartedAtUTC,Status)
+   VALUES(@run,310,'publish_live_rows',SYSUTCDATETIME(),'running');
   EXEC document_trial.ReplaceOfferRows @source=@target,@ExpectedObjectId=@oid;
+  UPDATE document_trial.OfferDeltaPhases SET Status='success',CompletedAtUTC=SYSUTCDATETIME() WHERE RunId=@run AND StepNo=310;
   IF @SkipCutoverFullCheck=1
    UPDATE document_trial.OfferPublicationControl SET LastFullCheckUTC=COALESCE(LastFullCheckUTC,
     (SELECT LastVerifiedAtUTC FROM document_trial.OfferDeltaState WHERE Id=1)) WHERE Id=1;
@@ -555,16 +600,26 @@ END CATCH;';
   SET @sql=N'DROP TABLE '+@target+N';'; EXEC sys.sp_executesql @sql;
   IF @FullCheck=1 BEGIN SET @sql=N'DROP TABLE '+@reference+N';'; EXEC sys.sp_executesql @sql; END;
   COMMIT TRANSACTION;
-  EXEC sys.sp_releaseapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockOwner='Session';
+  IF @ownsLock=1 EXEC sys.sp_releaseapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockOwner='Session';
+  IF @oldTimeout=-1 SET LOCK_TIMEOUT -1;
   SELECT @run AS RunId,'PUBLISHED' AS Result,@FullCheck AS FullSourceChecked,
    DATEDIFF_BIG(millisecond,@started,SYSUTCDATETIME())/60000.0 AS TotalMinutes;
  END TRY
  BEGIN CATCH
   IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
-  UPDATE document_trial.OfferDeltaRuns SET Status='failed',CompletedAtUTC=SYSUTCDATETIME(),ErrorNumber=ERROR_NUMBER() WHERE RunId=@run;
-  UPDATE document_trial.OfferDeltaPhases SET Status='failed',CompletedAtUTC=SYSUTCDATETIME(),ErrorNumber=ERROR_NUMBER() WHERE RunId=@run AND Status='running';
-  EXEC sys.sp_releaseapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockOwner='Session';
+  DECLARE @failure int=ERROR_NUMBER();
+  BEGIN TRY
+   UPDATE document_trial.OfferDeltaRuns SET Status='failed',CompletedAtUTC=SYSUTCDATETIME(),ErrorNumber=@failure WHERE RunId=@run;
+   UPDATE document_trial.OfferDeltaPhases SET Status='failed',CompletedAtUTC=SYSUTCDATETIME(),ErrorNumber=@failure WHERE RunId=@run AND Status='running';
+  END TRY
+  BEGIN CATCH
+   RAISERROR('Could not update failure journal; original error follows.',10,1) WITH NOWAIT;
+  END CATCH;
+  IF @ownsLock=1 EXEC sys.sp_releaseapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockOwner='Session';
+  IF @oldTimeout=-1 SET LOCK_TIMEOUT -1;
   THROW;
  END CATCH;
 END;
+GO
+SET LOCK_TIMEOUT -1;
 GO
