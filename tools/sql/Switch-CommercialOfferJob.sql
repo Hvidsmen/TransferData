@@ -8,7 +8,7 @@ IF @@TRANCOUNT<>0 THROW 51300,'Use a new window without a transaction.',1;
 IF @@LOCK_TIMEOUT<>-1 THROW 51300,'Use a fresh default SSMS window with LOCK_TIMEOUT -1.',1;
 IF LOWER(CONVERT(nvarchar(128),SERVERPROPERTY('MachineName')))<>N'vm-dwh' THROW 51300,'Only vm-dwh.',1;
 IF OBJECT_ID(N'document_trial.RefreshOfferLines',N'P') IS NULL THROW 51300,'Install publication first.',1;
-IF OBJECT_DEFINITION(OBJECT_ID(N'document_trial.RefreshOfferLines')) NOT LIKE N'%OfferPublicationDiagnosticsV2%'
+IF OBJECT_DEFINITION(OBJECT_ID(N'document_trial.RefreshOfferLines')) NOT LIKE N'%OfferPublicationDiagnosticsV3%'
  OR OBJECT_DEFINITION(OBJECT_ID(N'document_trial.RefreshOfferLines')) IS NULL
  THROW 51300,'Install updated publication diagnostics before switching.',1;
 DECLARE @job uniqueidentifier,@step int=41,@old nvarchar(max),@enabled bit,@rc int,@lock int,

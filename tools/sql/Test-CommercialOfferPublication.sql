@@ -50,8 +50,17 @@ INSERT #OfferTarget VALUES(1,N'old'),(2,NULL);
 INSERT #OfferPublishSource VALUES(1,N'corrected'),(3,N'new'),(3,N'new');
 DECLARE @oid int=OBJECT_ID(N'tempdb..#OfferTarget');
 BEGIN TRY
- BEGIN TRANSACTION;
- EXEC document_trial.ReplaceOfferRows @source=N'#OfferPublishSource',@target=N'#OfferTarget';
+ EXEC sys.sp_executesql N'
+ BEGIN TRY
+  BEGIN TRANSACTION;
+  EXEC document_trial.ReplaceOfferRows @source=N''#OfferPublishSource'',@target=N''#OfferTarget'';
+  COMMIT TRANSACTION;
+ END TRY
+ BEGIN CATCH
+  IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
+  THROW;
+ END CATCH;';
+ IF @@TRANCOUNT<>0 THROW 51300,'Dynamic publication returned an open transaction.',1;
  IF (SELECT COUNT(*) FROM #OfferTarget)<>3
   OR NOT EXISTS(SELECT 1 FROM #OfferTarget WHERE Id=1 AND Label=N'corrected')
   OR EXISTS(SELECT 1 FROM #OfferTarget WHERE Id=2)
@@ -60,7 +69,6 @@ BEGIN TRY
  IF OBJECT_ID(N'tempdb..#OfferTarget')<>@oid
   OR NOT EXISTS(SELECT 1 FROM tempdb.sys.indexes WHERE object_id=@oid AND name=N'FixtureIndex')
   THROW 51300,'Table identity/index changed.',1;
- COMMIT TRANSACTION;
  /* Empty materialization is a valid replacement, including removed documents. */
  DELETE FROM #OfferPublishSource;
  BEGIN TRANSACTION;
@@ -71,15 +79,24 @@ BEGIN TRY
     the simulated cache checkpoint survive caller rollback. */
  INSERT #OfferPublishSource VALUES(-1,N'invalid');
  BEGIN TRY
-  BEGIN TRANSACTION;
-  UPDATE #Checkpoint SET Id=2;
-  EXEC document_trial.ReplaceOfferRows @source=N'#OfferPublishSource',@target=N'#OfferTarget';
+  EXEC sys.sp_executesql N'
+  BEGIN TRY
+   BEGIN TRANSACTION;
+   UPDATE #Checkpoint SET Id=2;
+   EXEC document_trial.ReplaceOfferRows @source=N''#OfferPublishSource'',@target=N''#OfferTarget'';
+   COMMIT TRANSACTION;
+  END TRY
+  BEGIN CATCH
+   IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
+   THROW;
+  END CATCH;';
   THROW 51300,'Invalid insertion was accepted.',1;
  END TRY
  BEGIN CATCH
   IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
   IF ERROR_NUMBER()<>547 THROW;
  END CATCH;
+ IF @@TRANCOUNT<>0 THROW 51300,'Failed dynamic publication returned an open transaction.',1;
  IF (SELECT Id FROM #Checkpoint)<>1 OR (SELECT COUNT(*) FROM #OfferTarget)<>3
   OR (SELECT COUNT(*) FROM #OfferTarget WHERE Id=3)<>2
   THROW 51300,'Failed publication changed committed data/checkpoint.',1;
@@ -109,4 +126,4 @@ BEGIN CATCH
  IF ERROR_NUMBER()<>51300 OR ERROR_MESSAGE()<>'Full source comparison differs; nothing published.' THROW;
 END CATCH;
 DROP TABLE #OfferPublishSource,#OfferTarget,#Checkpoint;
-PRINT 'PASS: indexed header recheck (add/delete/version), replacement, duplicates, empty result, identity/index preservation, failed INSERT rollback and exact duplicate comparison.';
+PRINT 'PASS: balanced dynamic transactions (success/failure), indexed header recheck (add/delete/version), replacement, duplicates, empty result, identity/index preservation, failed INSERT rollback and exact duplicate comparison.';

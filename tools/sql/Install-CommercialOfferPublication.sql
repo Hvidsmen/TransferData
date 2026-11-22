@@ -180,7 +180,7 @@ GO
 CREATE OR ALTER PROCEDURE document_trial.RefreshOfferLines
  @FullCheck bit=0,@Cutover bit=0,@SkipCutoverFullCheck bit=0
 AS
-/* OfferPublicationDiagnosticsV2 */
+/* OfferPublicationDiagnosticsV3 */
 BEGIN
  SET NOCOUNT ON;
  SET XACT_ABORT ON;
@@ -242,7 +242,7 @@ BEGIN
    EXEC sys.sp_executesql @sql;
   END;
   SET @worker=N'DECLARE @rows bigint,@fetched bigint=0,@batches int=0,@tenant varchar(100),@ref binary(16),
-    @refs nvarchar(max),@remote nvarchar(max),@fetchSql nvarchar(max);
+    @refs nvarchar(max),@remote nvarchar(max),@fetchSql nvarchar(max),@cleanupSql nvarchar(max);
 BEGIN TRY
 RAISERROR(''Offer delta: read_header_versions'',10,1) WITH NOWAIT;
 INSERT document_trial.OfferDeltaPhases (RunId,StepNo,Phase,StartedAtUTC,Status)
@@ -487,7 +487,7 @@ END;
 /* Checkpoint is explicitly UNVERIFIED until independent output comparison.
    A failed/cancelled validation can never become the next incremental baseline. */
 UPDATE document_trial.OfferDeltaState SET Verified=0,PreparedRunId=@run,PreparedAtUTC=SYSUTCDATETIME() WHERE Id=1;
--- Commit belongs to RefreshOfferLines, after publication.
+-- Publication and COMMIT are below, inside this same dynamic batch.
 UPDATE document_trial.OfferDeltaPhases SET CompletedAtUTC=SYSUTCDATETIME(),Status=''success'',RowsCopied=NULL
 WHERE RunId=@run AND StepNo=60;
 RAISERROR(''Offer delta: enrich_all_cached_rows'',10,1) WITH NOWAIT;
@@ -571,22 +571,15 @@ INSERT document_trial.OfferDeltaPhases (RunId,StepNo,Phase,StartedAtUTC,Status)
 CREATE NONCLUSTERED INDEX IX_НомерСтроки ON __DELTA_TARGET__ ([НомерСтроки]);
 UPDATE document_trial.OfferDeltaPhases SET CompletedAtUTC=SYSUTCDATETIME(),Status=''success'',RowsCopied=NULL
 WHERE RunId=@run AND StepNo=90;
-END TRY
-BEGIN CATCH
-    IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
-    THROW;
-END CATCH;';
-  SET @worker=REPLACE(@worker,N'__DELTA_TARGET__',@target);
-  EXEC sys.sp_executesql @worker,N'@run uniqueidentifier,@full bit',@run=@run,@full=@full;
-  /* Worker leaves one local transaction open. Cache, live data and checkpoint
-     either commit together or all roll back. No remote reads below this point. */
-  IF @@TRANCOUNT<>1 THROW 51300,'Unexpected publication transaction depth.',1;
+  /* Cache, live data and checkpoint commit inside this same dynamic batch.
+     No transaction is left open across the sp_executesql return boundary. */
+  IF @@TRANCOUNT<>1 THROW 51300,''Unexpected publication transaction depth.'',1;
   IF @FullCheck=1 EXEC document_trial.CompareOfferTables @baseTarget=@reference,@candidateTarget=@target;
-  RAISERROR('Offer publication: publish_live_rows (lock, DELETE, INSERT).',10,1) WITH NOWAIT;
+  RAISERROR(''Offer publication: publish_live_rows (lock, DELETE, INSERT).'',10,1) WITH NOWAIT;
   INSERT document_trial.OfferDeltaPhases(RunId,StepNo,Phase,StartedAtUTC,Status)
-   VALUES(@run,310,'publish_live_rows',SYSUTCDATETIME(),'running');
+   VALUES(@run,310,''publish_live_rows'',SYSUTCDATETIME(),''running'');
   EXEC document_trial.ReplaceOfferRows @source=@target,@ExpectedObjectId=@oid;
-  UPDATE document_trial.OfferDeltaPhases SET Status='success',CompletedAtUTC=SYSUTCDATETIME() WHERE RunId=@run AND StepNo=310;
+  UPDATE document_trial.OfferDeltaPhases SET Status=''success'',CompletedAtUTC=SYSUTCDATETIME() WHERE RunId=@run AND StepNo=310;
   IF @SkipCutoverFullCheck=1
    UPDATE document_trial.OfferPublicationControl SET LastFullCheckUTC=COALESCE(LastFullCheckUTC,
     (SELECT LastVerifiedAtUTC FROM document_trial.OfferDeltaState WHERE Id=1)) WHERE Id=1;
@@ -594,12 +587,23 @@ END CATCH;';
    LastFullCheckUTC=CASE WHEN @FullCheck=1 THEN SYSUTCDATETIME() ELSE LastFullCheckUTC END WHERE Id=1;
   /* Verified means FULL source comparison only, never merely a successful load. */
   IF @FullCheck=1 UPDATE document_trial.OfferDeltaState SET Verified=1,LastVerifiedRunId=@run,LastVerifiedAtUTC=SYSUTCDATETIME() WHERE Id=1;
-  UPDATE document_trial.OfferDeltaRuns SET Status='success',CompletedAtUTC=SYSUTCDATETIME(),
+  UPDATE document_trial.OfferDeltaRuns SET Status=''success'',CompletedAtUTC=SYSUTCDATETIME(),
    MissingGroups=CASE WHEN @FullCheck=1 THEN 0 ELSE NULL END,ExtraGroups=CASE WHEN @FullCheck=1 THEN 0 ELSE NULL END,
-   CandidateMilliseconds=DATEDIFF_BIG(millisecond,@started,SYSUTCDATETIME()),CandidateObjectId=OBJECT_ID(@target,N'U') WHERE RunId=@run;
-  SET @sql=N'DROP TABLE '+@target+N';'; EXEC sys.sp_executesql @sql;
-  IF @FullCheck=1 BEGIN SET @sql=N'DROP TABLE '+@reference+N';'; EXEC sys.sp_executesql @sql; END;
+   CandidateMilliseconds=DATEDIFF_BIG(millisecond,@started,SYSUTCDATETIME()),CandidateObjectId=OBJECT_ID(@target,N''U'') WHERE RunId=@run;
+  SET @cleanupSql=N''DROP TABLE ''+@target+N'';''; EXEC sys.sp_executesql @cleanupSql;
+  IF @FullCheck=1 BEGIN SET @cleanupSql=N''DROP TABLE ''+@reference+N'';''; EXEC sys.sp_executesql @cleanupSql; END;
   COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;';
+  SET @worker=REPLACE(@worker,N'__DELTA_TARGET__',@target);
+  EXEC sys.sp_executesql @worker,
+   N'@run uniqueidentifier,@full bit,@FullCheck bit,@SkipCutoverFullCheck bit,@oid int,@target nvarchar(300),@reference nvarchar(300),@started datetime2',
+   @run=@run,@full=@full,@FullCheck=@FullCheck,@SkipCutoverFullCheck=@SkipCutoverFullCheck,
+   @oid=@oid,@target=@target,@reference=@reference,@started=@started;
+  IF @@TRANCOUNT<>0 THROW 51300,'Publication batch returned an open transaction.',1;
   IF @ownsLock=1 EXEC sys.sp_releaseapplock @Resource=N'document_trial.MeasureCommercialOffers',@LockOwner='Session';
   IF @oldTimeout=-1 SET LOCK_TIMEOUT -1;
   SELECT @run AS RunId,'PUBLISHED' AS Result,@FullCheck AS FullSourceChecked,
