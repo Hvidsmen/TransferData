@@ -1,5 +1,5 @@
 /* vm-dwh: install only. No Agent or live data changes.
-   Read docs/COMMERCIAL_OFFER_CUTOVER.md. Requires completed delta trial. */
+   Read tools/sql/архив/COMMERCIAL_OFFER_CUTOVER.md. Requires completed delta trial. */
 USE [DataWH];
 GO
 SET NOCOUNT ON;

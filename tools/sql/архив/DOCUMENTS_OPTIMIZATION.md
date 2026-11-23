@@ -44,7 +44,7 @@ git pull --ff-only origin main
 ```
 
 В SSMS на **vm-dwh** открыть и выполнить целиком
-`tools/sql/Measure-CommercialOffers.sql`. Это **реальный замер**, а не только
+`tools/sql/архив/Measure-CommercialOffers.sql`. Это **реальный замер**, а не только
 установка: он читает оба источника, записывает полные пробные копии в DataWH
 и строит пять индексов. Не нужен перезапуск портала или SQL Server.
 
@@ -110,7 +110,7 @@ ORDER BY Ordinal;
 
 ## Полный вариант шапок без скалярного вызова DocumentKey
 
-`tools/sql/Create-CommercialOffersInlineKeyView.sql` содержит полный текст
+`tools/sql/архив/Create-CommercialOffersInlineKeyView.sql` содержит полный текст
 предоставленного представления: весь набор столбцов, CTE основания и 27 LEFT JOIN.
 Он создаёт отдельный объект
 `1CUnloading.1c.[Документ.бит_КоммерческоеПредложениеКлиенту_InlineTrial]`.
@@ -152,7 +152,7 @@ NULL, дата со временем, пустой номер, кириллиц�
 Более быстрый результат относительно 18–21 минуты Agent ещё не доказывает
 оптимизацию: исходная логика не менялась, нагрузка и кэш могли отличаться.
 
-`tools/sql/Compare-CommercialOfferLines.sql` — следующий изолированный эксперимент.
+`tools/sql/архив/Compare-CommercialOfferLines.sql` — следующий изолированный эксперимент.
 После `git pull` выполнить его целиком в новом окне SSMS на vm-dwh **вне ETL**.
 Требуется завершённая подготовка schema/marker предыдущим Measure-CommercialOffers.
 Текущий job, представления, функции, источники, рабочие таблицы и price_trial

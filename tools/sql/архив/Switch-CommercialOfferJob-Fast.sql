@@ -1,6 +1,6 @@
 /* FAST step 41 cutover: reuses a previous recorded MATCH. No new full source
    copy/value comparison. Still refreshes delta and publishes ALL local rows.
-   Outside ETL, stable ERP copy. Read docs/COMMERCIAL_OFFER_CUTOVER.md. */
+   Outside ETL, stable ERP copy. Read tools/sql/архив/COMMERCIAL_OFFER_CUTOVER.md. */
 USE [DataWH];
 GO
 SET NOCOUNT ON;

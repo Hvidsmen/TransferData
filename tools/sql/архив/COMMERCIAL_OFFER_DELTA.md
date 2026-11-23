@@ -1,6 +1,6 @@
 # Пробная загрузка товаров коммерческих предложений по версиям документов
 
-Скрипт `tools/sql/Trial-CommercialOfferLinesDelta.sql` — эксперимент на vm-dwh.
+Скрипт `tools/sql/архив/Trial-CommercialOfferLinesDelta.sql` — эксперимент на vm-dwh.
 Он не меняет Agent, источники, рабочие erp-таблицы, представления и price_trial.
 Создаёт приватный кеш и сравнивает результат с полной исходной загрузкой.
 
@@ -62,7 +62,7 @@ git pull --ff-only origin main
 ```
 
 В SSMS на **vm-dwh**, в новом окне без транзакции, выполнить целиком
-`tools/sql/Trial-CommercialOfferLinesDelta.sql`. Требуется schema/marker от ранее
+`tools/sql/архив/Trial-CommercialOfferLinesDelta.sql`. Требуется schema/marker от ранее
 выполненного Measure-CommercialOffers. Должно быть стабильное состояние ERP и
 справочников, без восстановления исходной базы/параллельных загрузок.
 

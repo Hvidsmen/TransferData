@@ -2,7 +2,7 @@
    Reads TWO 1CUnloading sources (table or view), copies all their columns,
    builds the SAME five non-unique indexes in the SAME order as the live step.
    No Agent, ERP, live erp.* or source data is modified. No source procedure run.
-   Run on vm-dwh outside heavy ETL. See docs/DOCUMENTS_OPTIMIZATION.md.
+   Run on vm-dwh outside heavy ETL. See tools/sql/архив/DOCUMENTS_OPTIMIZATION.md.
 */
 USE [DataWH];
 GO

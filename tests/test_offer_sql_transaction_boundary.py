@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 
-SOURCE = Path(__file__).resolve().parents[1] / 'tools/sql/Install-CommercialOfferPublication.sql'
+SOURCE = Path(__file__).resolve().parents[1] / 'tools/sql/архив/Install-CommercialOfferPublication.sql'
 
 
 def test_offer_worker_finishes_its_transaction_before_returning():

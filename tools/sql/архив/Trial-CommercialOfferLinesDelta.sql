@@ -2,7 +2,7 @@
    First run reads the full raw table into a PRIVATE cache. Later runs fetch
    rows only for changed parent keys. An independent FULL reference and exact
    comparison run EVERY time and are EXCLUDED from CandidateMinutes.
-   Uses existing document_trial marker. Read docs/COMMERCIAL_OFFER_DELTA.md.
+   Uses existing document_trial marker. Read tools/sql/архив/COMMERCIAL_OFFER_DELTA.md.
 */
 USE [DataWH];
 GO
