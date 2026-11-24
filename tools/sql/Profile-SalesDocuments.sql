@@ -138,9 +138,15 @@ END;
 IF @finalStart=0 OR (LEN(@code)-LEN(REPLACE(@code COLLATE Latin1_General_100_CI_AS,N'LEFT JOIN',N'')))/9<>45
  THROW 51400,'Final SELECT/45 LEFT JOIN shape changed; review first.',1;
 SET @finalOriginal=SUBSTRING(@body,@finalStart,LEN(@body));
-IF (LEN(@builtBase)-LEN(REPLACE(@builtBase,@finalOriginal,N'')))/LEN(@finalOriginal)<>1
- THROW 51400,'Final SELECT is not unique in private body.',1;
-SET @builtBase=REPLACE(@builtBase,@finalOriginal,N'');
+/* REPLACE's search pattern is page-size limited even for nvarchar(max).
+   The unchanged final statement is a suffix: validate bytes and cut by offset.
+   DATALENGTH preserves trailing spaces, unlike LEN. */
+DECLARE @finalChars bigint=DATALENGTH(@finalOriginal)/2,@builtChars bigint=DATALENGTH(@builtBase)/2;
+IF @finalChars=0 OR @builtChars<@finalChars
+ THROW 51400,'Unexpected final SELECT suffix length.',1;
+IF CONVERT(varbinary(max),RIGHT(@builtBase,@finalChars))<>CONVERT(varbinary(max),@finalOriginal)
+ THROW 51400,'Final SELECT suffix differs in private body.',1;
+SET @builtBase=LEFT(@builtBase,@builtChars-@finalChars);
 SET @scan=1;
 WHILE 1=1
 BEGIN
@@ -164,6 +170,7 @@ BEGIN
  IF @nextIf>0 AND @nextIf<@readEnd SET @readEnd=@nextIf;
  IF @readEnd<=@readStart THROW 51400,'Unexpected temp-read statement boundaries.',1;
  SET @oldRead=SUBSTRING(@body,@readStart,@readEnd-@readStart);
+ IF DATALENGTH(@oldRead)>8000 THROW 51400,'Temp-read search pattern exceeds 8000 bytes; review source before profiling.',1;
  IF (LEN(@builtBase)-LEN(REPLACE(@builtBase,@oldRead,N'')))/NULLIF(LEN(@oldRead),0)<>1
   THROW 51400,'Temp read is not unique; source shape changed.',1;
  SET @readNo=@readNo+1;
