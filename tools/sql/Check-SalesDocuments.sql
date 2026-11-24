@@ -33,16 +33,27 @@ SELECT TOP(20) h.instance_id,h.run_date,h.run_time,h.run_status,
  h.sql_message_id,h.message
 FROM msdb.dbo.sysjobs j JOIN msdb.dbo.sysjobhistory h ON h.job_id=j.job_id
 WHERE j.name=N'ERP to DWH Документы' AND h.step_id=5 ORDER BY h.instance_id DESC;
-/* If the trial is running, inspect it from a separate SSMS window. */
+/* Latest run across both experiments; use a separate SSMS window. */
+DECLARE @trials TABLE(RunId uniqueidentifier,SessionId int,StartedAtUTC datetime2,Trial varchar(12),Status varchar(16));
 IF OBJECT_ID(N'DataWH.document_trial.SalesExtractRuns',N'U') IS NOT NULL
-BEGIN
- DECLARE @session int;
- SELECT TOP(1) @session=SessionId FROM DataWH.document_trial.SalesExtractRuns ORDER BY StartedAtUTC DESC;
- SELECT TOP(1) * FROM DataWH.document_trial.SalesExtractRuns ORDER BY StartedAtUTC DESC;
- SELECT r.session_id,r.status,r.command,r.wait_type,r.blocking_session_id,
+ INSERT @trials SELECT TOP(1) RunId,SessionId,StartedAtUTC,'indexes',Status
+ FROM DataWH.document_trial.SalesExtractRuns ORDER BY StartedAtUTC DESC;
+IF OBJECT_ID(N'DataWH.document_trial.SalesNarrowRuns',N'U') IS NOT NULL
+ INSERT @trials SELECT TOP(1) RunId,SessionId,StartedAtUTC,'narrow',Status
+ FROM DataWH.document_trial.SalesNarrowRuns ORDER BY StartedAtUTC DESC;
+DECLARE @session int,@run uniqueidentifier,@trial varchar(12);
+SELECT TOP(1) @session=SessionId,@run=RunId,@trial=Trial FROM @trials ORDER BY StartedAtUTC DESC;
+SELECT * FROM @trials ORDER BY StartedAtUTC DESC;
+SELECT r.session_id,r.status,r.command,r.wait_type,r.blocking_session_id,
  r.total_elapsed_time/60000.0 AS Minutes,r.cpu_time/1000.0 AS CpuSeconds,r.reads,r.writes,
  SUBSTRING(t.text,r.statement_start_offset/2+1,
  (CASE WHEN r.statement_end_offset=-1 THEN DATALENGTH(t.text) ELSE r.statement_end_offset END-r.statement_start_offset)/2+1) AS CurrentStatement
  FROM sys.dm_exec_requests r OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) t
  WHERE r.session_id=@session;
+IF @trial='narrow'
+BEGIN
+ SELECT Variant,TempName,RowsCopied,Milliseconds/60000.0 AS ReadMinutes,ReservedPages/128.0 AS ReservedMB
+ FROM DataWH.document_trial.SalesNarrowReads WHERE RunId=@run ORDER BY Variant,TempName;
+ SELECT Variant,COUNT(*) AS BuiltIndexes,SUM(Milliseconds)/60000.0 AS IndexMinutes
+ FROM DataWH.document_trial.SalesNarrowIndexes WHERE RunId=@run GROUP BY Variant;
 END;
