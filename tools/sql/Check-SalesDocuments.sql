@@ -41,6 +41,9 @@ IF OBJECT_ID(N'DataWH.document_trial.SalesExtractRuns',N'U') IS NOT NULL
 IF OBJECT_ID(N'DataWH.document_trial.SalesNarrowRuns',N'U') IS NOT NULL
  INSERT @trials SELECT TOP(1) RunId,SessionId,StartedAtUTC,'narrow',Status
  FROM DataWH.document_trial.SalesNarrowRuns ORDER BY StartedAtUTC DESC;
+IF OBJECT_ID(N'DataWH.document_trial.SalesProfileRuns',N'U') IS NOT NULL
+ INSERT @trials SELECT TOP(1) RunId,SessionId,StartedAtUTC,'profile',Status
+ FROM DataWH.document_trial.SalesProfileRuns ORDER BY StartedAtUTC DESC;
 DECLARE @session int,@run uniqueidentifier,@trial varchar(12);
 SELECT TOP(1) @session=SessionId,@run=RunId,@trial=Trial FROM @trials ORDER BY StartedAtUTC DESC;
 SELECT * FROM @trials ORDER BY StartedAtUTC DESC;
@@ -57,3 +60,15 @@ BEGIN
  SELECT Variant,COUNT(*) AS BuiltIndexes,SUM(Milliseconds)/60000.0 AS IndexMinutes
  FROM DataWH.document_trial.SalesNarrowIndexes WHERE RunId=@run GROUP BY Variant;
 END;
+
+IF @trial='profile'
+BEGIN
+ SELECT Phase,TempName,Status,RowsCopied,
+  COALESCE(Milliseconds,DATEDIFF_BIG(millisecond,StartedAtUTC,SYSUTCDATETIME()))/60000.0 AS Minutes
+ FROM DataWH.document_trial.SalesProfilePhases WHERE RunId=@run ORDER BY StepNo;
+ SELECT COUNT(*) AS BuiltIndexes,SUM(Milliseconds)/60000.0 AS IndexMinutes
+ FROM DataWH.document_trial.SalesProfileIndexes WHERE RunId=@run;
+END;
+SELECT session_id,request_time,grant_time,requested_memory_kb,granted_memory_kb,
+ used_memory_kb,max_used_memory_kb,wait_time_ms
+FROM sys.dm_exec_query_memory_grants WHERE session_id=@session;
